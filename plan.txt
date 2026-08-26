@@ -1,0 +1,20 @@
+stablepay/
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   ├── database/
+│   │   ├── services/
+│   │   ├── blockchain/
+│   │   ├── workers/
+│   │   └── main.py
+│   │
+│   ├── tests/
+│   └── requirements.txt
+│
+├── frontend/
+│   └── React app
+│
+├── docker-compose.yml
+├── .env
+├── .gitignore
+└── README.md
