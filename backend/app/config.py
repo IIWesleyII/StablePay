@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     database_url: str
     merchant_wallet_address: str
     payment_expiration_minutes: int = Field(default=15, gt=0)
+    payment_expiration_poll_seconds: int = Field(default=30, gt=0)
 
     @field_validator("database_url")
     @classmethod

@@ -12,3 +12,13 @@ def test_payment_expiration_must_be_positive():
             payment_expiration_minutes=0,
             _env_file=None,
         )
+
+
+def test_payment_expiration_poll_interval_must_be_positive():
+    with pytest.raises(ValidationError, match="payment_expiration_poll_seconds"):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            payment_expiration_poll_seconds=0,
+            _env_file=None,
+        )
