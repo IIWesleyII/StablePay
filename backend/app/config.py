@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 
+from pydantic import Field
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
 
     database_url: str
     merchant_wallet_address: str
+    payment_expiration_minutes: int = Field(default=15, gt=0)
 
     @field_validator("database_url")
     @classmethod

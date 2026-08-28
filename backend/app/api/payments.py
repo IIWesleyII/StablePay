@@ -1,3 +1,6 @@
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -9,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database.database import get_session
 from database.models import Payment
+from domain.payments import PaymentStatus
 from schemas.payments import PaymentCreate
 from schemas.payments import PaymentResponse
 
@@ -25,13 +29,18 @@ async def create_payment(
 ):
     """Create and store a new pending USDC payment."""
 
+    created_at = datetime.now(timezone.utc)
+
     payment = Payment(
         id=f"pay_{uuid4().hex}",
         amount=payment_data.amount,
         currency="USDC",
         chain="base-sepolia",
         recipient_address=settings.merchant_wallet_address,
-        status="pending",
+        status=PaymentStatus.PENDING,
+        created_at=created_at,
+        expires_at=created_at
+        + timedelta(minutes=settings.payment_expiration_minutes),
     )
 
     session.add(payment)

@@ -5,6 +5,8 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from domain.payments import PaymentStatus
+
 
 class PaymentCreate(BaseModel):
     """Data required to create a payment."""
@@ -25,6 +27,9 @@ class PaymentResponse(BaseModel):
     currency: str
     chain: str
     recipient_address: str
-    status: str
+    status: PaymentStatus
     transaction_hash: str | None
     created_at: datetime
+    expires_at: datetime
+    detected_at: datetime | None
+    confirmed_at: datetime | None

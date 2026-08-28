@@ -1,3 +1,4 @@
+alembic
 fastapi[standard]
 SQLAlchemy
 eth-account

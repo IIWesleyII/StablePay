@@ -1,3 +1,5 @@
+from datetime import datetime
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -21,6 +23,22 @@ async def test_create_payment(client: AsyncClient):
     assert payment["status"] == "pending"
     assert payment["transaction_hash"] is None
     assert payment["created_at"] is not None
+    assert payment["expires_at"] is not None
+    assert payment["detected_at"] is None
+    assert payment["confirmed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_payment_uses_configured_expiration_window(client: AsyncClient):
+    response = await client.post("/payments", json={"amount": "1.00"})
+    payment = response.json()
+
+    created_at = datetime.fromisoformat(payment["created_at"])
+    expires_at = datetime.fromisoformat(payment["expires_at"])
+
+    assert expires_at - created_at == timedelta(
+        minutes=settings.payment_expiration_minutes
+    )
 
 
 @pytest.mark.asyncio
