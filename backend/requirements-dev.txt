@@ -1,0 +1,6 @@
+-r requirements.txt
+
+aiosqlite
+httpx
+pytest
+pytest-asyncio

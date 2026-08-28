@@ -1,30 +1,28 @@
-import os
 from uuid import uuid4
 
-from dotenv import load_dotenv
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
-from fastapi import status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from database.database import get_session
 from database.models import Payment
 from schemas.payments import PaymentCreate
 from schemas.payments import PaymentResponse
-
-load_dotenv()
 
 router = APIRouter(
     prefix="/payments",
     tags=["payments"],
 )
 
-MERCHANT_WALLET_ADDRESS = os.getenv("MERCHANT_WALLET_ADDRESS")
-
 
 @router.post("", response_model=PaymentResponse, status_code=201)
-async def create_payment(payment_data: PaymentCreate, session=Depends(get_session)):
+async def create_payment(
+    payment_data: PaymentCreate,
+    session: AsyncSession = Depends(get_session),
+):
     """Create and store a new pending USDC payment."""
 
     payment = Payment(
@@ -32,7 +30,7 @@ async def create_payment(payment_data: PaymentCreate, session=Depends(get_sessio
         amount=payment_data.amount,
         currency="USDC",
         chain="base-sepolia",
-        recipient_address=MERCHANT_WALLET_ADDRESS,
+        recipient_address=settings.merchant_wallet_address,
         status="pending",
     )
 
@@ -44,12 +42,11 @@ async def create_payment(payment_data: PaymentCreate, session=Depends(get_sessio
     return payment
 
 
-from fastapi import HTTPException
-from sqlalchemy import select
-
-
 @router.get("/{payment_id}", response_model=PaymentResponse)
-async def get_payment(payment_id: str, session=Depends(get_session)):
+async def get_payment(
+    payment_id: str,
+    session: AsyncSession = Depends(get_session),
+):
     """Return a payment by its payment ID."""
 
     result = await session.execute(
