@@ -6,6 +6,7 @@ from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import Numeric
 from sqlalchemy import String
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 
@@ -24,6 +25,12 @@ payment_status_type = SqlEnum(
 
 class Payment(Base):
     __tablename__ = "payments"
+    __table_args__ = (
+        UniqueConstraint(
+            "transaction_hash",
+            name="uq_payments_transaction_hash",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(40),

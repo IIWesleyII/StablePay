@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 
 from domain.payments import PaymentStatus
 
@@ -33,3 +34,25 @@ class PaymentResponse(BaseModel):
     expires_at: datetime
     detected_at: datetime | None
     confirmed_at: datetime | None
+
+
+class PaymentVerificationRequest(BaseModel):
+    """A blockchain transaction submitted as proof of payment."""
+
+    transaction_hash: str = Field(
+        pattern=r"^0x[0-9a-fA-F]{64}$",
+    )
+
+    @field_validator("transaction_hash")
+    @classmethod
+    def normalize_transaction_hash(cls, value: str) -> str:
+        return value.lower()
+
+
+class PaymentVerificationResponse(BaseModel):
+    """The matched transfer and resulting payment state."""
+
+    payment: PaymentResponse
+    sender_address: str
+    confirmations: int
+    required_confirmations: int

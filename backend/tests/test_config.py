@@ -45,3 +45,14 @@ def test_base_sepolia_usdc_address_must_be_valid():
             base_sepolia_usdc_address="not-an-address",
             _env_file=None,
         )
+
+
+def test_payment_required_confirmations_must_be_positive():
+    with pytest.raises(ValidationError, match="payment_required_confirmations"):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            payment_required_confirmations=0,
+            _env_file=None,
+        )

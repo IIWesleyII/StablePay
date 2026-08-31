@@ -1,16 +1,27 @@
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from hexbytes import HexBytes
+from web3 import Web3
+from web3.exceptions import TransactionNotFound
 
 from blockchain.base import BASE_SEPOLIA_CHAIN_ID
 from blockchain.base import BaseSepoliaClient
 from blockchain.base import BlockchainConnectionError
+from blockchain.base import BlockchainTransactionError
+from blockchain.base import InvalidTransactionHashError
 from blockchain.base import ContractNotFoundError
+from blockchain.base import TransactionFailedError
+from blockchain.base import TransactionNotMinedError
 from blockchain.base import UnexpectedTokenError
 from blockchain.base import WrongNetworkError
 
 
 USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+SENDER_ADDRESS = "0x1111111111111111111111111111111111111111"
+RECIPIENT_ADDRESS = "0x2222222222222222222222222222222222222222"
+TRANSACTION_HASH = "0x" + "ab" * 32
 
 
 class FakeEth:
@@ -22,6 +33,8 @@ class FakeEth:
         token_symbol: str = "USDC",
         token_decimals: int = 6,
         chain_id_error: Exception | None = None,
+        receipt: dict | None = None,
+        receipt_error: Exception | None = None,
     ) -> None:
         self._chain_id = chain_id
         self._block_number = block_number
@@ -29,6 +42,8 @@ class FakeEth:
         self._token_symbol = token_symbol
         self._token_decimals = token_decimals
         self._chain_id_error = chain_id_error
+        self._receipt = receipt
+        self._receipt_error = receipt_error
 
     @property
     def chain_id(self):
@@ -51,6 +66,13 @@ class FakeEth:
 
     def contract(self, address: str, abi: list[dict]):
         return FakeContract(self._token_symbol, self._token_decimals)
+
+    async def get_transaction_receipt(self, transaction_hash: str):
+        if self._receipt_error is not None:
+            raise self._receipt_error
+        if self._receipt is None:
+            raise TransactionNotFound(transaction_hash)
+        return self._receipt
 
 
 class FakeContractCall:
@@ -88,6 +110,41 @@ class FakeProvider:
 
 def make_web3(fake_eth: FakeEth):
     return SimpleNamespace(eth=fake_eth, provider=FakeProvider())
+
+
+def address_topic(address: str) -> HexBytes:
+    return HexBytes("0x" + "00" * 12 + address[2:])
+
+
+def make_transfer_log(
+    token_address: str = USDC_ADDRESS,
+    amount: int = 10_000,
+    log_index: int = 0,
+) -> dict:
+    return {
+        "address": token_address,
+        "topics": [
+            Web3.keccak(text="Transfer(address,address,uint256)"),
+            address_topic(SENDER_ADDRESS),
+            address_topic(RECIPIENT_ADDRESS),
+        ],
+        "data": HexBytes(amount.to_bytes(32, byteorder="big")),
+        "logIndex": log_index,
+    }
+
+
+def make_receipt(
+    logs: list[dict] | None = None,
+    status: int = 1,
+    block_number: int = 123450,
+    transaction_hash: str = TRANSACTION_HASH,
+) -> dict:
+    return {
+        "transactionHash": HexBytes(transaction_hash),
+        "status": status,
+        "blockNumber": block_number,
+        "logs": logs or [],
+    }
 
 
 @pytest.mark.asyncio
@@ -161,3 +218,87 @@ async def test_client_disconnects_provider():
     await client.close()
 
     assert web3_client.provider.disconnected is True
+
+
+def test_client_can_be_created_from_settings():
+    client = BaseSepoliaClient.from_settings()
+
+    assert client is not None
+
+
+@pytest.mark.asyncio
+async def test_receipt_parser_returns_usdc_transfers():
+    other_contract_log = make_transfer_log(
+        token_address="0x3333333333333333333333333333333333333333",
+    )
+    usdc_log = make_transfer_log()
+    web3_client = make_web3(
+        FakeEth(receipt=make_receipt([other_contract_log, usdc_log]))
+    )
+    client = BaseSepoliaClient("https://rpc.example", USDC_ADDRESS, web3_client)
+
+    transfers = await client.get_usdc_transfers(TRANSACTION_HASH)
+
+    assert len(transfers) == 1
+    transfer = transfers[0]
+    assert transfer.transaction_hash == TRANSACTION_HASH
+    assert transfer.sender == SENDER_ADDRESS
+    assert transfer.recipient == RECIPIENT_ADDRESS
+    assert transfer.raw_amount == 10_000
+    assert transfer.amount == Decimal("0.01")
+    assert transfer.block_number == 123450
+    assert transfer.confirmations == 7
+
+
+@pytest.mark.asyncio
+async def test_receipt_parser_returns_empty_list_without_usdc_transfer():
+    unrelated_log = make_transfer_log(
+        token_address="0x3333333333333333333333333333333333333333",
+    )
+    web3_client = make_web3(FakeEth(receipt=make_receipt([unrelated_log])))
+    client = BaseSepoliaClient("https://rpc.example", USDC_ADDRESS, web3_client)
+
+    transfers = await client.get_usdc_transfers(TRANSACTION_HASH)
+
+    assert transfers == []
+
+
+@pytest.mark.asyncio
+async def test_receipt_parser_rejects_unmined_transaction():
+    web3_client = make_web3(
+        FakeEth(receipt_error=TransactionNotFound(TRANSACTION_HASH))
+    )
+    client = BaseSepoliaClient("https://rpc.example", USDC_ADDRESS, web3_client)
+
+    with pytest.raises(TransactionNotMinedError, match="not been mined"):
+        await client.get_usdc_transfers(TRANSACTION_HASH)
+
+
+@pytest.mark.asyncio
+async def test_receipt_parser_rejects_failed_transaction():
+    web3_client = make_web3(FakeEth(receipt=make_receipt(status=0)))
+    client = BaseSepoliaClient("https://rpc.example", USDC_ADDRESS, web3_client)
+
+    with pytest.raises(TransactionFailedError, match="reverted"):
+        await client.get_usdc_transfers(TRANSACTION_HASH)
+
+
+@pytest.mark.asyncio
+async def test_receipt_parser_rejects_invalid_hash_before_rpc_call():
+    web3_client = make_web3(FakeEth())
+    client = BaseSepoliaClient("https://rpc.example", USDC_ADDRESS, web3_client)
+
+    with pytest.raises(InvalidTransactionHashError, match="64 hexadecimal"):
+        await client.get_usdc_transfers("not-a-hash")
+
+
+@pytest.mark.asyncio
+async def test_receipt_parser_rejects_mismatched_receipt_hash():
+    different_hash = "0x" + "cd" * 32
+    web3_client = make_web3(
+        FakeEth(receipt=make_receipt(transaction_hash=different_hash))
+    )
+    client = BaseSepoliaClient("https://rpc.example", USDC_ADDRESS, web3_client)
+
+    with pytest.raises(BlockchainTransactionError, match="does not match"):
+        await client.get_usdc_transfers(TRANSACTION_HASH)

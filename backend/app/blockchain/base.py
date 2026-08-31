@@ -1,4 +1,5 @@
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from decimal import Decimal
 from types import TracebackType
@@ -199,6 +200,12 @@ class BaseSepoliaClient:
 
         confirmations = max(latest_block - block_number + 1, 0)
         receipt_hash = Web3.to_hex(receipt["transactionHash"]).lower()
+
+        if receipt_hash != normalized_hash:
+            raise BlockchainTransactionError(
+                "Transaction receipt hash does not match the requested transaction"
+            )
+
         transfers = []
 
         for log in receipt["logs"]:
@@ -267,3 +274,10 @@ class BaseSepoliaClient:
 def _address_from_topic(topic: Any) -> str:
     topic_hex = Web3.to_hex(topic)
     return Web3.to_checksum_address("0x" + topic_hex[-40:])
+
+
+async def get_base_sepolia_client() -> AsyncIterator[BaseSepoliaClient]:
+    """Provide a request-scoped, read-only Base Sepolia client."""
+
+    async with BaseSepoliaClient.from_settings() as client:
+        yield client

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     base_sepolia_usdc_address: str = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
     payment_expiration_minutes: int = Field(default=15, gt=0)
     payment_expiration_poll_seconds: int = Field(default=30, gt=0)
+    payment_required_confirmations: int = Field(default=3, gt=0)
 
     @field_validator("database_url")
     @classmethod
