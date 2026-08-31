@@ -29,6 +29,20 @@ Run the automated test suite from the project root:
 .\venv\Scripts\python.exe -m pytest -v
 ```
 
+## Base Sepolia connection check
+
+After configuring `BASE_SEPOLIA_RPC_URL`, run the read-only network check from
+the project root:
+
+```powershell
+Set-Location backend\app
+..\..\venv\Scripts\python.exe -m blockchain.check_connection
+Set-Location ..\..
+```
+
+The check verifies the Base Sepolia chain ID, reads the latest block, and
+confirms that the configured USDC address contains deployed contract bytecode.
+
 ## Creating future migrations
 
 After changing a SQLAlchemy model, generate a migration and review the generated

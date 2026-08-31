@@ -4,3 +4,4 @@ SQLAlchemy
 eth-account
 asyncpg
 pydantic-settings
+web3
