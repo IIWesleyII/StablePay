@@ -19,10 +19,10 @@ SENDER_ADDRESS = "0x1111111111111111111111111111111111111111"
 
 
 class FakeBlockchainClient:
-    def __init__(self) -> None:
+    def __init__(self, recipient: str) -> None:
         self.confirmations = settings.payment_required_confirmations
         self.amount = Decimal("1.00")
-        self.recipient = settings.merchant_wallet_address
+        self.recipient = recipient
         self.error: Exception | None = None
 
     async def get_usdc_transfers(self, transaction_hash: str):
@@ -44,11 +44,14 @@ class FakeBlockchainClient:
 
 
 @pytest_asyncio.fixture
-async def verification_client(client: AsyncClient):
-    fake_blockchain = FakeBlockchainClient()
+async def verification_client(
+    authenticated_client: AsyncClient,
+    authenticated_merchant,
+):
+    fake_blockchain = FakeBlockchainClient(authenticated_merchant.wallet_address)
     app.dependency_overrides[get_base_sepolia_client] = lambda: fake_blockchain
 
-    yield client, fake_blockchain
+    yield authenticated_client, fake_blockchain
 
 
 async def create_payment(client: AsyncClient, amount: str = "1.00") -> str:
@@ -61,6 +64,7 @@ async def create_payment(client: AsyncClient, amount: str = "1.00") -> str:
 async def test_verified_transfer_confirms_payment(
     verification_client,
     test_session: AsyncSession,
+    authenticated_merchant,
 ):
     client, fake_blockchain = verification_client
     payment_id = await create_payment(client)
@@ -84,7 +88,10 @@ async def test_verified_transfer_confirms_payment(
     )
     event = event_result.scalar_one()
     assert event.event_type == "payment.confirmed"
-    assert event.destination_url == settings.merchant_webhook_url
+    assert event.destination_url == authenticated_merchant.webhook_url
+    assert event.payload["data"]["payment"]["merchant_id"] == (
+        authenticated_merchant.id
+    )
     assert event.payload["data"]["payment"]["transaction_hash"] == TRANSACTION_HASH
 
 
@@ -142,7 +149,7 @@ async def test_wrong_transfer_amount_is_rejected(verification_client):
 @pytest.mark.asyncio
 async def test_wrong_transfer_recipient_is_rejected(verification_client):
     client, fake_blockchain = verification_client
-    fake_blockchain.recipient = "0x2222222222222222222222222222222222222222"
+    fake_blockchain.recipient = "0x4444444444444444444444444444444444444444"
     payment_id = await create_payment(client)
 
     response = await client.post(

@@ -62,15 +62,20 @@ def request_json(
     method: str,
     url: str,
     body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Send a JSON request to the local StablePay API."""
 
     encoded_body = None if body is None else json.dumps(body).encode("utf-8")
+    request_headers = {"Content-Type": "application/json"}
+    if headers is not None:
+        request_headers.update(headers)
+
     request = Request(
         url,
         data=encoded_body,
         method=method,
-        headers={"Content-Type": "application/json"},
+        headers=request_headers,
     )
 
     try:
@@ -144,6 +149,17 @@ def load_test_account(private_key_env: str | None = None):
         raise PaymentScriptError("The entered private key is invalid") from error
     finally:
         private_key = ""
+
+
+def load_api_key(environment_variable: str) -> str:
+    """Read the merchant API key without accepting it as a command argument."""
+
+    api_key = os.environ.get(environment_variable, "").strip()
+    if not api_key:
+        raise PaymentScriptError(
+            f"Environment variable {environment_variable} is not configured"
+        )
+    return api_key
 
 
 def connect_to_base_sepolia() -> Web3:
@@ -252,6 +268,11 @@ def parse_arguments() -> argparse.Namespace:
         "--private-key-env",
         help="Read the test key from this environment variable instead of prompting",
     )
+    parser.add_argument(
+        "--api-key-env",
+        default="STABLEPAY_API_KEY",
+        help="Environment variable containing the merchant API key",
+    )
     return parser.parse_args()
 
 
@@ -260,9 +281,11 @@ def main() -> int:
     api_url = arguments.api_url.rstrip("/")
 
     try:
+        api_key = load_api_key(arguments.api_key_env)
         payment = request_json(
             "GET",
             f"{api_url}/payments/{arguments.payment_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
         )
         amount, recipient = validate_payment(payment)
         raw_amount = int(amount * USDC_SCALE)

@@ -1,5 +1,7 @@
 import sys
 from collections.abc import AsyncIterator
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pytest_asyncio
@@ -16,6 +18,8 @@ sys.path.insert(0, str(APP_DIRECTORY))
 
 from database.database import Base  # noqa: E402
 from database.database import get_session  # noqa: E402
+from database.models import Merchant  # noqa: E402
+from api.authentication import get_authenticated_merchant  # noqa: E402
 from main import app  # noqa: E402
 
 
@@ -56,3 +60,34 @@ async def client(test_session: AsyncSession) -> AsyncIterator[AsyncClient]:
         yield client
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def authenticated_merchant(test_session: AsyncSession) -> Merchant:
+    current_time = datetime.now(timezone.utc)
+    merchant = Merchant(
+        id="mch_authenticated_test",
+        name="Authenticated Test Merchant",
+        wallet_address="0x2222222222222222222222222222222222222222",
+        webhook_url="https://merchant.test/webhooks/stablepay",
+        is_active=True,
+        created_at=current_time,
+        updated_at=current_time,
+    )
+    test_session.add(merchant)
+    await test_session.commit()
+    return merchant
+
+
+@pytest_asyncio.fixture
+async def authenticated_client(
+    client: AsyncClient,
+    authenticated_merchant: Merchant,
+) -> AsyncIterator[AsyncClient]:
+    app.dependency_overrides[get_authenticated_merchant] = (
+        lambda: authenticated_merchant
+    )
+
+    yield client
+
+    app.dependency_overrides.pop(get_authenticated_merchant, None)

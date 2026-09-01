@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from api.merchants import router as merchants_router
 from api.payments import router as payments_router
 from workers.payment_expiration import run_payment_expiration_worker
 from workers.webhook_delivery import run_webhook_delivery_worker
@@ -35,3 +36,4 @@ app = FastAPI(
 )
 
 app.include_router(payments_router)
+app.include_router(merchants_router)

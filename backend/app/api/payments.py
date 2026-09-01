@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.authentication import get_authenticated_merchant
 from blockchain.base import BaseSepoliaClient
 from blockchain.base import BlockchainConnectionError
 from blockchain.base import BlockchainTransactionError
@@ -17,6 +18,7 @@ from blockchain.base import TransactionNotMinedError
 from blockchain.base import get_base_sepolia_client
 from config import settings
 from database.database import get_session
+from database.models import Merchant
 from database.models import Payment
 from domain.payments import PaymentStatus
 from schemas.payments import PaymentCreate
@@ -41,6 +43,7 @@ router = APIRouter(
 @router.post("", response_model=PaymentResponse, status_code=201)
 async def create_payment(
     payment_data: PaymentCreate,
+    merchant: Merchant = Depends(get_authenticated_merchant),
     session: AsyncSession = Depends(get_session),
 ):
     """Create and store a new pending USDC payment."""
@@ -49,10 +52,11 @@ async def create_payment(
 
     payment = Payment(
         id=f"pay_{uuid4().hex}",
+        merchant_id=merchant.id,
         amount=payment_data.amount,
         currency="USDC",
         chain="base-sepolia",
-        recipient_address=settings.merchant_wallet_address,
+        recipient_address=merchant.wallet_address,
         status=PaymentStatus.PENDING,
         created_at=created_at,
         expires_at=created_at
@@ -70,12 +74,16 @@ async def create_payment(
 @router.get("/{payment_id}", response_model=PaymentResponse)
 async def get_payment(
     payment_id: str,
+    merchant: Merchant = Depends(get_authenticated_merchant),
     session: AsyncSession = Depends(get_session),
 ):
     """Return a payment by its payment ID."""
 
     result = await session.execute(
-        select(Payment).where(Payment.id == payment_id)
+        select(Payment).where(
+            Payment.id == payment_id,
+            Payment.merchant_id == merchant.id,
+        )
     )
 
     payment = result.scalar_one_or_none()
@@ -169,10 +177,11 @@ async def verify_payment(
             became_confirmed = True
 
         if became_confirmed:
+            webhook_url = await _get_payment_webhook_url(payment, session)
             session.add(
                 create_payment_confirmed_event(
                     payment,
-                    settings.merchant_webhook_url,
+                    webhook_url,
                     current_time,
                 )
             )
@@ -217,3 +226,19 @@ def _database_timestamp_as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+async def _get_payment_webhook_url(
+    payment: Payment,
+    session: AsyncSession,
+) -> str:
+    """Use merchant configuration while retaining legacy-payment behavior."""
+
+    if payment.merchant_id is None:
+        return settings.merchant_webhook_url
+
+    merchant = await session.get(Merchant, payment.merchant_id)
+    if merchant is None:
+        raise WebhookEventError("Payment merchant account no longer exists")
+
+    return merchant.webhook_url

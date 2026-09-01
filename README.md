@@ -8,25 +8,32 @@ blockchain networks such as Base.
 Create `.env` from `.env.example` and replace its placeholder merchant address.
 Then install the development dependencies and start PostgreSQL:
 
-```powershell
-.\venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+```bash
+./venv/Scripts/python.exe -m pip install -r backend/requirements-dev.txt
 docker compose up -d db
 ```
 
 Apply every pending database migration:
 
-```powershell
-.\venv\Scripts\python.exe -m alembic -c backend\alembic.ini upgrade head
+```bash
+./venv/Scripts/python.exe -m alembic -c backend/alembic.ini upgrade head
 ```
 
-Start the API using the same command you normally use from your IDE.
+Start the API:
+
+```bash
+./venv/Scripts/python.exe -m uvicorn main:app \
+  --app-dir backend/app \
+  --host 127.0.0.1 \
+  --port 8000
+```
 
 ## Tests
 
 Run the automated test suite from the project root:
 
-```powershell
-.\venv\Scripts\python.exe -m pytest -v
+```bash
+./venv/Scripts/python.exe -m pytest -v
 ```
 
 ## Base Sepolia connection check
@@ -34,10 +41,10 @@ Run the automated test suite from the project root:
 After configuring `BASE_SEPOLIA_RPC_URL`, run the read-only network check from
 the project root:
 
-```powershell
-Set-Location backend\app
-..\..\venv\Scripts\python.exe -m blockchain.check_connection
-Set-Location ..\..
+```bash
+cd backend/app
+../../venv/Scripts/python.exe -m blockchain.check_connection
+cd ../..
 ```
 
 The check verifies the Base Sepolia chain ID, reads the latest block, and
@@ -47,28 +54,26 @@ confirms that the configured USDC address contains deployed contract bytecode.
 
 First create a payment request:
 
-```powershell
-$payment = Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/payments `
-  -ContentType "application/json" `
-  -Body '{"amount":"0.01"}'
+```bash
+set -a
+source .env
+set +a
 
-$payment
+curl -X POST http://127.0.0.1:8000/payments \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY" \
+  -d '{"amount":"0.01"}'
 ```
 
 Using a browser wallet on Base Sepolia, send exactly `0.01` testnet USDC to
 the `recipient_address` returned above. Copy the resulting transaction hash,
 then ask StablePay to verify it:
 
-```powershell
-$transactionHash = "0xREPLACE_WITH_THE_REAL_TRANSACTION_HASH"
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://127.0.0.1:8000/payments/$($payment.id)/verify" `
-  -ContentType "application/json" `
-  -Body (@{ transaction_hash = $transactionHash } | ConvertTo-Json)
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/payments/pay_REPLACE_WITH_PAYMENT_ID/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"transaction_hash":"0xREPLACE_WITH_TRANSACTION_HASH"}'
 ```
 
 StablePay looks up that exact transaction, checks the USDC contract, recipient,
@@ -81,8 +86,13 @@ the payment request's `expires_at` time (15 minutes by default).
 
 After creating a pending payment, run this from the project root:
 
-```powershell
-.\venv\Scripts\python.exe backend\send_test_payment.py pay_REPLACE_WITH_PAYMENT_ID
+```bash
+set -a
+source .env
+set +a
+
+./venv/Scripts/python.exe backend/send_test_payment.py \
+  pay_REPLACE_WITH_PAYMENT_ID
 ```
 
 The script retrieves the requested recipient and amount, prompts for the test
@@ -113,10 +123,10 @@ already processed.
 Use the same `MERCHANT_WEBHOOK_SECRET` value for StablePay and the local fake
 merchant. Start the receiver in a separate terminal:
 
-```powershell
-.\venv\Scripts\python.exe -m uvicorn fake_merchant:app `
-  --app-dir backend `
-  --host 127.0.0.1 `
+```bash
+./venv/Scripts/python.exe -m uvicorn fake_merchant:app \
+  --app-dir backend \
+  --host 127.0.0.1 \
   --port 9000
 ```
 
@@ -130,12 +140,98 @@ http://127.0.0.1:9000/webhooks/received
 The fake merchant stores events only in memory and is intended for local testing
 only. Restarting it clears the received-event list.
 
+## Creating the first merchant
+
+After applying the migrations, create a merchant and its initial API key from
+the project root:
+
+```bash
+./venv/Scripts/python.exe backend/create_merchant.py \
+  --name "Example Merchant" \
+  --key-name "Local development"
+```
+
+The wallet and webhook URL default to `MERCHANT_WALLET_ADDRESS` and
+`MERCHANT_WEBHOOK_URL`. You can override them with `--wallet-address` and
+`--webhook-url`. The plaintext API key is displayed only once; StablePay saves
+only its hash. Do not commit the key or pass it directly as a command-line
+argument.
+
+Test the key against the authenticated merchant endpoint:
+
+```bash
+set -a
+source .env
+set +a
+
+curl http://127.0.0.1:8000/merchants/me \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY"
+```
+
+Missing, malformed, expired, and revoked keys receive `401 Unauthorized`.
+Inactive merchant accounts receive `403 Forbidden`.
+
+Update the merchant settings used by future payments and webhook events:
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/merchants/me \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY" \
+  -d '{"name":"Updated Merchant Name"}'
+```
+
+You may update `name`, `wallet_address`, and `webhook_url` independently.
+Changing the wallet affects only new payment requests; existing payments keep
+the recipient address they were created with.
+
+## Managing merchant API keys
+
+Create an additional key before replacing or revoking an existing key:
+
+```bash
+curl -X POST http://127.0.0.1:8000/merchants/me/api-keys \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY" \
+  -d '{"name":"Replacement key"}'
+```
+
+An optional ISO 8601 `expires_at` value can make a temporary key:
+
+```bash
+curl -X POST http://127.0.0.1:8000/merchants/me/api-keys \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY" \
+  -d '{"name":"Temporary key","expires_at":"2030-01-01T00:00:00Z"}'
+```
+
+The `api_key` value is returned only by this creation response. Save it
+securely because StablePay stores only its hash. List safe metadata for all of
+the merchant's keys:
+
+```bash
+curl http://127.0.0.1:8000/merchants/me/api-keys \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY"
+```
+
+After confirming that a replacement works, revoke the old key:
+
+```bash
+curl -X DELETE \
+  http://127.0.0.1:8000/merchants/me/api-keys/key_REPLACE_WITH_KEY_ID \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY"
+```
+
+Revocation is immediate and permanent. StablePay keeps the revoked key's safe
+metadata for auditing but never returns its secret or hash. StablePay refuses
+to revoke a merchant's last active key, preventing accidental account lockout.
+
 ## Creating future migrations
 
 After changing a SQLAlchemy model, generate a migration and review the generated
 file before applying it:
 
-```powershell
-.\venv\Scripts\python.exe -m alembic -c backend\alembic.ini revision --autogenerate -m "describe the schema change"
-.\venv\Scripts\python.exe -m alembic -c backend\alembic.ini upgrade head
+```bash
+./venv/Scripts/python.exe -m alembic -c backend/alembic.ini \
+  revision --autogenerate -m "describe the schema change"
+./venv/Scripts/python.exe -m alembic -c backend/alembic.ini upgrade head
 ```

@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from backend.send_test_payment import PaymentScriptError
+from backend.send_test_payment import load_api_key
 from backend.send_test_payment import load_test_account
 from backend.send_test_payment import validate_payment
 
@@ -64,3 +65,16 @@ def test_missing_private_key_environment_variable_is_rejected(monkeypatch):
 
     with pytest.raises(PaymentScriptError, match="is not configured"):
         load_test_account("STABLEPAY_TEST_KEY")
+
+
+def test_merchant_api_key_is_loaded_from_named_environment_variable(monkeypatch):
+    monkeypatch.setenv("STABLEPAY_API_KEY", "sp_test.key_example.secret")
+
+    assert load_api_key("STABLEPAY_API_KEY") == "sp_test.key_example.secret"
+
+
+def test_missing_merchant_api_key_is_rejected(monkeypatch):
+    monkeypatch.delenv("STABLEPAY_API_KEY", raising=False)
+
+    with pytest.raises(PaymentScriptError, match="is not configured"):
+        load_api_key("STABLEPAY_API_KEY")

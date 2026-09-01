@@ -3,6 +3,7 @@ from datetime import timezone
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import Boolean
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
@@ -38,6 +39,107 @@ webhook_delivery_status_type = SqlEnum(
 )
 
 
+class Merchant(Base):
+    """A business that accepts payments through StablePay."""
+
+    __tablename__ = "merchants"
+    __table_args__ = (
+        UniqueConstraint(
+            "wallet_address",
+            name="uq_merchants_wallet_address",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(40),
+        primary_key=True,
+    )
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    wallet_address: Mapped[str] = mapped_column(
+        String(42),
+        nullable=False,
+    )
+    webhook_url: Mapped[str] = mapped_column(
+        String(2048),
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class MerchantApiKey(Base):
+    """A hashed credential that authenticates one merchant."""
+
+    __tablename__ = "merchant_api_keys"
+    __table_args__ = (
+        UniqueConstraint(
+            "secret_hash",
+            name="uq_merchant_api_keys_secret_hash",
+        ),
+        Index(
+            "ix_merchant_api_keys_merchant_revoked",
+            "merchant_id",
+            "revoked_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(40),
+        primary_key=True,
+    )
+    merchant_id: Mapped[str] = mapped_column(
+        ForeignKey("merchants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    key_prefix: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    secret_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+
 class Payment(Base):
     __tablename__ = "payments"
     __table_args__ = (
@@ -45,11 +147,20 @@ class Payment(Base):
             "transaction_hash",
             name="uq_payments_transaction_hash",
         ),
+        Index(
+            "ix_payments_merchant_created_at",
+            "merchant_id",
+            "created_at",
+        ),
     )
 
     id: Mapped[str] = mapped_column(
         String(40),
         primary_key=True,
+    )
+    merchant_id: Mapped[str | None] = mapped_column(
+        ForeignKey("merchants.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     amount: Mapped[Decimal] = mapped_column(
         Numeric(30, 6),

@@ -45,6 +45,7 @@ def create_payment_confirmed_event(
         "data": {
             "payment": {
                 "id": payment.id,
+                "merchant_id": payment.merchant_id,
                 "amount": format(payment.amount, "f"),
                 "currency": payment.currency,
                 "chain": payment.chain,
