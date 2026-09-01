@@ -3,11 +3,14 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from blockchain.base import TransactionNotMinedError
 from blockchain.base import UsdcTransfer
 from blockchain.base import get_base_sepolia_client
 from config import settings
+from database.models import WebhookEvent
 from main import app
 
 
@@ -55,7 +58,10 @@ async def create_payment(client: AsyncClient, amount: str = "1.00") -> str:
 
 
 @pytest.mark.asyncio
-async def test_verified_transfer_confirms_payment(verification_client):
+async def test_verified_transfer_confirms_payment(
+    verification_client,
+    test_session: AsyncSession,
+):
     client, fake_blockchain = verification_client
     payment_id = await create_payment(client)
 
@@ -73,9 +79,20 @@ async def test_verified_transfer_confirms_payment(verification_client):
     assert result["sender_address"] == SENDER_ADDRESS
     assert result["confirmations"] == settings.payment_required_confirmations
 
+    event_result = await test_session.execute(
+        select(WebhookEvent).where(WebhookEvent.payment_id == payment_id)
+    )
+    event = event_result.scalar_one()
+    assert event.event_type == "payment.confirmed"
+    assert event.destination_url == settings.merchant_webhook_url
+    assert event.payload["data"]["payment"]["transaction_hash"] == TRANSACTION_HASH
+
 
 @pytest.mark.asyncio
-async def test_payment_stays_confirming_until_threshold(verification_client):
+async def test_payment_stays_confirming_until_threshold(
+    verification_client,
+    test_session: AsyncSession,
+):
     client, fake_blockchain = verification_client
     fake_blockchain.confirmations = settings.payment_required_confirmations - 1
     payment_id = await create_payment(client)
@@ -87,6 +104,11 @@ async def test_payment_stays_confirming_until_threshold(verification_client):
     assert first_response.status_code == 200
     assert first_response.json()["payment"]["status"] == "confirming"
 
+    pending_event_result = await test_session.execute(
+        select(WebhookEvent).where(WebhookEvent.payment_id == payment_id)
+    )
+    assert pending_event_result.scalar_one_or_none() is None
+
     fake_blockchain.confirmations = settings.payment_required_confirmations
     second_response = await client.post(
         f"/payments/{payment_id}/verify",
@@ -95,6 +117,11 @@ async def test_payment_stays_confirming_until_threshold(verification_client):
 
     assert second_response.status_code == 200
     assert second_response.json()["payment"]["status"] == "confirmed"
+
+    confirmed_event_result = await test_session.execute(
+        select(WebhookEvent).where(WebhookEvent.payment_id == payment_id)
+    )
+    assert confirmed_event_result.scalar_one().event_type == "payment.confirmed"
 
 
 @pytest.mark.asyncio
@@ -164,7 +191,10 @@ async def test_transaction_cannot_pay_two_payments(verification_client):
 
 
 @pytest.mark.asyncio
-async def test_confirmed_verification_is_safe_to_retry(verification_client):
+async def test_confirmed_verification_is_safe_to_retry(
+    verification_client,
+    test_session: AsyncSession,
+):
     client, fake_blockchain = verification_client
     payment_id = await create_payment(client)
 
@@ -180,3 +210,8 @@ async def test_confirmed_verification_is_safe_to_retry(verification_client):
     assert first_response.status_code == 200
     assert second_response.status_code == 200
     assert second_response.json()["payment"]["status"] == "confirmed"
+
+    event_result = await test_session.execute(
+        select(WebhookEvent).where(WebhookEvent.payment_id == payment_id)
+    )
+    assert len(event_result.scalars().all()) == 1

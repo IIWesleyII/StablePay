@@ -91,6 +91,45 @@ for confirmation before broadcasting. It then waits for the receipt and submits
 the transaction hash to StablePay automatically. Never place the private key in
 the source code or pass it as a command-line argument.
 
+## Webhook delivery
+
+Set a unique webhook secret with at least 32 characters in your local `.env`:
+
+```text
+MERCHANT_WEBHOOK_SECRET=replace-with-a-random-local-secret
+```
+
+Do not commit the real secret. When it is configured, StablePay's background
+worker claims due webhook events, signs them with HMAC-SHA256, and sends them to
+`MERCHANT_WEBHOOK_URL`. Without the secret, the worker stays disabled.
+
+Delivery is intentionally at-least-once: a rare crash after the merchant accepts
+a webhook but before StablePay records success can cause a duplicate. Merchant
+software should therefore store `StablePay-Event-Id` and ignore IDs it has
+already processed.
+
+### Local webhook demonstration
+
+Use the same `MERCHANT_WEBHOOK_SECRET` value for StablePay and the local fake
+merchant. Start the receiver in a separate terminal:
+
+```powershell
+.\venv\Scripts\python.exe -m uvicorn fake_merchant:app `
+  --app-dir backend `
+  --host 127.0.0.1 `
+  --port 9000
+```
+
+Then start StablePay and complete a new payment. After confirmation, inspect the
+accepted event at:
+
+```text
+http://127.0.0.1:9000/webhooks/received
+```
+
+The fake merchant stores events only in memory and is intended for local testing
+only. Restarting it clears the received-event list.
+
 ## Creating future migrations
 
 After changing a SQLAlchemy model, generate a migration and review the generated

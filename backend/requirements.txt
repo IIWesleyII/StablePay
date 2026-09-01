@@ -2,6 +2,7 @@ alembic
 fastapi[standard]
 SQLAlchemy
 eth-account
+httpx
 asyncpg
 pydantic-settings
 web3

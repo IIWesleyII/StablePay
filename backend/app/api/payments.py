@@ -29,6 +29,8 @@ from services.payment_lifecycle import mark_payment_detected
 from services.payment_lifecycle import mark_payment_expired
 from services.payment_verification import PaymentVerificationError
 from services.payment_verification import find_matching_transfer
+from services.webhook_events import WebhookEventError
+from services.webhook_events import create_payment_confirmed_event
 
 router = APIRouter(
     prefix="/payments",
@@ -149,6 +151,8 @@ async def verify_payment(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     try:
+        became_confirmed = False
+
         if payment.status == PaymentStatus.PENDING:
             mark_payment_detected(payment, transaction_hash, current_time)
 
@@ -162,10 +166,20 @@ async def verify_payment(
                     payment.detected_at
                 )
             mark_payment_confirmed(payment, current_time)
+            became_confirmed = True
+
+        if became_confirmed:
+            session.add(
+                create_payment_confirmed_event(
+                    payment,
+                    settings.merchant_webhook_url,
+                    current_time,
+                )
+            )
 
         await session.commit()
         await session.refresh(payment)
-    except PaymentLifecycleError as error:
+    except (PaymentLifecycleError, WebhookEventError) as error:
         await session.rollback()
         raise HTTPException(status_code=409, detail=str(error)) from error
     except IntegrityError as error:

@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from backend.send_test_payment import PaymentScriptError
+from backend.send_test_payment import load_test_account
 from backend.send_test_payment import validate_payment
 
 
@@ -47,3 +48,19 @@ def test_expired_payment_is_rejected():
 def test_amount_with_more_than_six_decimals_is_rejected():
     with pytest.raises(PaymentScriptError, match="more than six decimal places"):
         validate_payment(make_payment(amount="0.0000001"))
+
+
+def test_account_can_be_loaded_from_named_environment_variable(monkeypatch):
+    private_key = "11" * 32
+    monkeypatch.setenv("STABLEPAY_TEST_KEY", private_key)
+
+    account = load_test_account("STABLEPAY_TEST_KEY")
+
+    assert account.address.startswith("0x")
+
+
+def test_missing_private_key_environment_variable_is_rejected(monkeypatch):
+    monkeypatch.delenv("STABLEPAY_TEST_KEY", raising=False)
+
+    with pytest.raises(PaymentScriptError, match="is not configured"):
+        load_test_account("STABLEPAY_TEST_KEY")

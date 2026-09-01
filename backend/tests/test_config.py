@@ -56,3 +56,62 @@ def test_payment_required_confirmations_must_be_positive():
             payment_required_confirmations=0,
             _env_file=None,
         )
+
+
+def test_merchant_webhook_url_must_be_http():
+    with pytest.raises(ValidationError, match="MERCHANT_WEBHOOK_URL"):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            merchant_webhook_url="not-a-url",
+            _env_file=None,
+        )
+
+
+def test_merchant_webhook_secret_must_be_long_enough():
+    with pytest.raises(ValidationError, match="MERCHANT_WEBHOOK_SECRET"):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            merchant_webhook_secret="too-short",
+            _env_file=None,
+        )
+
+
+@pytest.mark.parametrize(
+    "setting_name",
+    [
+        "webhook_delivery_poll_seconds",
+        "webhook_delivery_timeout_seconds",
+        "webhook_delivery_batch_size",
+        "webhook_delivery_lease_seconds",
+        "webhook_delivery_max_attempts",
+        "webhook_delivery_retry_seconds",
+    ],
+)
+def test_webhook_worker_settings_must_be_positive(setting_name: str):
+    with pytest.raises(ValidationError, match=setting_name):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            _env_file=None,
+            **{setting_name: 0},
+        )
+
+
+def test_webhook_lease_must_outlast_request_timeout():
+    with pytest.raises(
+        ValidationError,
+        match="WEBHOOK_DELIVERY_LEASE_SECONDS",
+    ):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            webhook_delivery_timeout_seconds=30,
+            webhook_delivery_lease_seconds=30,
+            _env_file=None,
+        )

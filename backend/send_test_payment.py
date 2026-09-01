@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -126,10 +127,17 @@ def validate_payment(payment: dict[str, Any]) -> tuple[Decimal, str]:
     return amount, recipient
 
 
-def load_test_account():
-    """Prompt for a test key without displaying or storing it."""
+def load_test_account(private_key_env: str | None = None):
+    """Load a test key from a named environment variable or hidden prompt."""
 
-    private_key = getpass.getpass("Test wallet private key (hidden): ").strip()
+    if private_key_env is None:
+        private_key = getpass.getpass("Test wallet private key (hidden): ").strip()
+    else:
+        private_key = os.environ.get(private_key_env, "").strip()
+        if not private_key:
+            raise PaymentScriptError(
+                f"Environment variable {private_key_env} is not configured"
+            )
     try:
         return Account.from_key(private_key)
     except (TypeError, ValueError) as error:
@@ -240,6 +248,10 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Skip the final interactive broadcast confirmation",
     )
+    parser.add_argument(
+        "--private-key-env",
+        help="Read the test key from this environment variable instead of prompting",
+    )
     return parser.parse_args()
 
 
@@ -254,7 +266,7 @@ def main() -> int:
         )
         amount, recipient = validate_payment(payment)
         raw_amount = int(amount * USDC_SCALE)
-        account = load_test_account()
+        account = load_test_account(arguments.private_key_env)
         sender = Web3.to_checksum_address(account.address)
 
         if sender == recipient:
