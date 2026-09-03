@@ -6,6 +6,8 @@ from uuid import uuid4
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import HTTPException
+from fastapi import Query
+from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,7 @@ from database.models import Merchant
 from database.models import Payment
 from domain.payments import PaymentStatus
 from schemas.payments import PaymentCreate
+from schemas.payments import PaymentListResponse
 from schemas.payments import PaymentResponse
 from schemas.payments import PaymentVerificationRequest
 from schemas.payments import PaymentVerificationResponse
@@ -69,6 +72,51 @@ async def create_payment(
     await session.refresh(payment)
 
     return payment
+
+
+@router.get("", response_model=PaymentListResponse)
+async def list_payments(
+    status: PaymentStatus | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return one merchant's recent payments and lifecycle totals."""
+
+    payment_filters = [Payment.merchant_id == merchant.id]
+    if status is not None:
+        payment_filters.append(Payment.status == status)
+
+    payments_result = await session.execute(
+        select(Payment)
+        .where(*payment_filters)
+        .order_by(Payment.created_at.desc(), Payment.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    total_result = await session.execute(
+        select(func.count())
+        .select_from(Payment)
+        .where(*payment_filters)
+    )
+    counts_result = await session.execute(
+        select(Payment.status, func.count())
+        .where(Payment.merchant_id == merchant.id)
+        .group_by(Payment.status)
+    )
+
+    status_counts = {payment_status.value: 0 for payment_status in PaymentStatus}
+    for payment_status, count in counts_result:
+        status_counts[payment_status.value] = count
+
+    return {
+        "items": list(payments_result.scalars()),
+        "total": total_result.scalar_one(),
+        "limit": limit,
+        "offset": offset,
+        "status_counts": status_counts,
+    }
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)

@@ -37,6 +37,40 @@ class PaymentResponse(BaseModel):
     confirmed_at: datetime | None
 
 
+class PaymentStatusCounts(BaseModel):
+    """Merchant payment totals grouped by lifecycle status."""
+
+    pending: int
+    confirming: int
+    confirmed: int
+    expired: int
+
+
+class PaymentListResponse(BaseModel):
+    """A page of merchant payments plus unfiltered status totals."""
+
+    items: list[PaymentResponse]
+    total: int
+    limit: int
+    offset: int
+    status_counts: PaymentStatusCounts
+
+
+class CheckoutPaymentResponse(BaseModel):
+    """Public payment details required by the customer checkout page."""
+
+    id: str
+    merchant_name: str
+    amount: Decimal
+    currency: str
+    chain: str
+    recipient_address: str
+    status: PaymentStatus
+    transaction_hash: str | None
+    expires_at: datetime
+    confirmed_at: datetime | None
+
+
 class PaymentVerificationRequest(BaseModel):
     """A blockchain transaction submitted as proof of payment."""
 

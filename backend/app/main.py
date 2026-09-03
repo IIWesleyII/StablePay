@@ -2,9 +2,12 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from api.merchants import router as merchants_router
 from api.payments import router as payments_router
+from api.web import APP_DIRECTORY
+from api.web import router as web_router
 from workers.payment_expiration import run_payment_expiration_worker
 from workers.webhook_delivery import run_webhook_delivery_worker
 
@@ -35,5 +38,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.mount(
+    "/static",
+    StaticFiles(directory=APP_DIRECTORY / "web" / "static"),
+    name="static",
+)
 app.include_router(payments_router)
 app.include_router(merchants_router)
+app.include_router(web_router)

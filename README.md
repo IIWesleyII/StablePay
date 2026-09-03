@@ -28,6 +28,38 @@ Start the API:
   --port 8000
 ```
 
+## Merchant dashboard and checkout
+
+With the API running, open the merchant dashboard:
+
+```text
+http://127.0.0.1:8000/dashboard
+```
+
+Paste `STABLEPAY_API_KEY` into the login form. The dashboard validates the key,
+keeps it only in the browser tab's session storage, and uses it as a Bearer
+token for API requests. From the dashboard a merchant can:
+
+- Review payment totals and recent requests.
+- Filter payments by lifecycle status.
+- Create a new USDC payment request.
+- Copy or open the resulting customer checkout link.
+
+Customer checkout links use this format:
+
+```text
+http://127.0.0.1:8000/checkout/pay_REPLACE_WITH_PAYMENT_ID
+```
+
+The public checkout reveals only the information needed to pay: merchant name,
+amount, network, recipient address, expiration, payment status, and any attached
+transaction hash. The customer sends the exact testnet USDC transfer and pastes
+its transaction hash into checkout for verification. The page polls StablePay
+for lifecycle updates until the request is confirmed or expired.
+
+Both pages are testnet-only. The dashboard is a proof-of-concept API-key client,
+not a production login system.
+
 ## Tests
 
 Run the automated test suite from the project root:

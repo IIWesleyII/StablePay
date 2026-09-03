@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="StablePay merchant payment dashboard">
+    <title>Merchant dashboard · StablePay</title>
+    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+    <script src="{{ url_for('static', path='/dashboard.js') }}" defer></script>
+  </head>
+  <body class="dashboard-page">
+    <header class="site-header">
+      <a class="brand" href="/dashboard" aria-label="StablePay dashboard">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>StablePay</span>
+      </a>
+      <div class="header-actions">
+        <span class="network-chip"><span class="network-dot"></span>Base Sepolia</span>
+        <button id="logout-button" class="button button-ghost hidden" type="button">Log out</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="login-view" class="login-shell">
+        <div class="login-copy">
+          <p class="eyebrow">Merchant workspace</p>
+          <h1>Stablecoin payments,<br>without the guesswork.</h1>
+          <p>Use your test API key to create checkout links and follow every USDC payment from request to confirmation.</p>
+        </div>
+        <form id="login-form" class="panel login-panel">
+          <div>
+            <p class="eyebrow">Secure access</p>
+            <h2>Open your dashboard</h2>
+            <p class="muted">Your key is kept only for this browser-tab session.</p>
+          </div>
+          <label for="api-key">StablePay API key</label>
+          <input id="api-key" name="api-key" type="password" autocomplete="off" placeholder="sp_test.key_…" required>
+          <p id="login-error" class="form-message error-message hidden" role="alert"></p>
+          <button class="button button-primary button-full" type="submit">Continue</button>
+        </form>
+      </section>
+
+      <section id="dashboard-view" class="dashboard-shell hidden">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Overview</p>
+            <h1 id="merchant-greeting">Payments</h1>
+            <p class="muted">Create a request, share checkout, and track settlement.</p>
+          </div>
+          <button id="refresh-button" class="button button-secondary" type="button">Refresh data</button>
+        </div>
+
+        <div class="summary-grid" aria-label="Payment summary">
+          <article class="summary-card summary-total">
+            <span>Total requests</span>
+            <strong id="total-count">0</strong>
+          </article>
+          <article class="summary-card">
+            <span><i class="status-dot pending"></i>Pending</span>
+            <strong id="pending-count">0</strong>
+          </article>
+          <article class="summary-card">
+            <span><i class="status-dot confirming"></i>Confirming</span>
+            <strong id="confirming-count">0</strong>
+          </article>
+          <article class="summary-card">
+            <span><i class="status-dot confirmed"></i>Confirmed</span>
+            <strong id="confirmed-count">0</strong>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel create-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">New payment</p>
+                <h2>Create checkout</h2>
+              </div>
+              <span class="currency-badge">USDC</span>
+            </div>
+            <form id="create-payment-form">
+              <label for="payment-amount">Amount</label>
+              <div class="amount-input">
+                <span>$</span>
+                <input id="payment-amount" name="amount" inputmode="decimal" placeholder="0.01" required>
+                <b>USDC</b>
+              </div>
+              <p class="field-help">Supports amounts down to 0.000001 USDC.</p>
+              <p id="create-error" class="form-message error-message hidden" role="alert"></p>
+              <button class="button button-primary button-full" type="submit">Create payment request</button>
+            </form>
+            <div id="created-payment" class="created-payment hidden" aria-live="polite">
+              <span>Checkout is ready</span>
+              <a id="created-payment-link" href="#" target="_blank" rel="noopener">Open customer checkout ↗</a>
+            </div>
+          </section>
+
+          <aside class="panel merchant-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Account</p>
+                <h2>Merchant details</h2>
+              </div>
+            </div>
+            <dl class="detail-list">
+              <div><dt>Name</dt><dd id="merchant-name">—</dd></div>
+              <div><dt>Settlement wallet</dt><dd id="merchant-wallet" class="mono truncate">—</dd></div>
+              <div><dt>Webhook</dt><dd id="merchant-webhook" class="truncate">—</dd></div>
+            </dl>
+          </aside>
+        </div>
+
+        <section class="panel payments-panel">
+          <div class="panel-heading payments-heading">
+            <div>
+              <p class="eyebrow">Activity</p>
+              <h2>Payment requests</h2>
+            </div>
+            <label class="filter-label" for="status-filter">
+              <span>Status</span>
+              <select id="status-filter">
+                <option value="">All payments</option>
+                <option value="pending">Pending</option>
+                <option value="confirming">Confirming</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="expired">Expired</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="payments-loading" class="empty-state">Loading payments…</div>
+          <div id="payments-empty" class="empty-state hidden">
+            <strong>No payments here yet</strong>
+            <span>Create a payment request to see it appear.</span>
+          </div>
+          <div id="payments-table-wrap" class="table-wrap hidden">
+            <table>
+              <thead><tr><th>Payment</th><th>Amount</th><th>Status</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody id="payments-body"></tbody>
+            </table>
+          </div>
+          <div id="pagination" class="pagination hidden">
+            <span id="page-label"></span>
+            <div>
+              <button id="previous-page" class="button button-ghost button-small" type="button">Previous</button>
+              <button id="next-page" class="button button-ghost button-small" type="button">Next</button>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+  </body>
+</html>

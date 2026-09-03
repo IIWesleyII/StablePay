@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Pay a StablePay USDC checkout request">
+    <title>USDC checkout · StablePay</title>
+    <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+    <script src="{{ url_for('static', path='/checkout.js') }}" defer></script>
+  </head>
+  <body class="checkout-page" data-payment-id="{{ payment_id }}">
+    <header class="checkout-header">
+      <a class="brand" href="/dashboard" aria-label="StablePay">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>StablePay</span>
+      </a>
+      <span class="secure-label">Testnet checkout</span>
+    </header>
+
+    <main class="checkout-shell">
+      <section id="checkout-loading" class="checkout-card loading-card">
+        <div class="loading-line wide"></div>
+        <div class="loading-line amount"></div>
+        <div class="loading-line"></div>
+      </section>
+
+      <section id="checkout-error" class="checkout-card hidden">
+        <div class="result-icon error-icon">!</div>
+        <h1>Checkout unavailable</h1>
+        <p id="checkout-error-message" class="muted">This payment could not be loaded.</p>
+      </section>
+
+      <section id="checkout-content" class="checkout-card hidden">
+        <div class="checkout-merchant">
+          <div>
+            <p class="eyebrow">Payment to</p>
+            <h1 id="checkout-merchant-name">Merchant</h1>
+          </div>
+          <span id="checkout-status" class="status-pill pending">Pending</span>
+        </div>
+
+        <div class="checkout-amount">
+          <span>Amount due</span>
+          <strong><span id="checkout-amount">—</span> <small>USDC</small></strong>
+          <p id="checkout-countdown">Loading expiration…</p>
+        </div>
+
+        <div id="payment-instructions">
+          <div class="instruction-step">
+            <span class="step-number">1</span>
+            <div>
+              <h2>Send on Base Sepolia</h2>
+              <p>Transfer the exact USDC amount to this address.</p>
+            </div>
+          </div>
+
+          <div class="copy-field">
+            <span>Recipient wallet</span>
+            <div><code id="checkout-recipient">—</code><button type="button" data-copy-target="checkout-recipient">Copy</button></div>
+          </div>
+          <div class="copy-field compact-field">
+            <span>Exact amount</span>
+            <div><code id="checkout-copy-amount">—</code><button type="button" data-copy-target="checkout-copy-amount">Copy</button></div>
+          </div>
+
+          <div class="instruction-step second-step">
+            <span class="step-number">2</span>
+            <div>
+              <h2>Submit the transaction hash</h2>
+              <p>StablePay uses it to match your transfer to this checkout.</p>
+            </div>
+          </div>
+
+          <form id="verify-form">
+            <label for="transaction-hash">Transaction hash</label>
+            <input id="transaction-hash" name="transaction-hash" placeholder="0x…" autocomplete="off" spellcheck="false" required>
+            <p id="verify-message" class="form-message hidden" role="alert"></p>
+            <button id="verify-button" class="button button-primary button-full" type="submit">Verify payment</button>
+          </form>
+        </div>
+
+        <div id="confirmed-result" class="checkout-result hidden">
+          <div class="result-icon success-icon">✓</div>
+          <h2>Payment confirmed</h2>
+          <p>The USDC transfer has been matched and confirmed on Base Sepolia.</p>
+        </div>
+
+        <div id="expired-result" class="checkout-result hidden">
+          <div class="result-icon error-icon">!</div>
+          <h2>Payment request expired</h2>
+          <p>Ask the merchant to create a new checkout before sending funds.</p>
+        </div>
+
+        <footer class="checkout-footer">
+          <span id="checkout-payment-id" class="mono"></span>
+          <span>Powered by StablePay</span>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>
