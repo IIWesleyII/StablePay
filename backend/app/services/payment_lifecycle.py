@@ -53,6 +53,39 @@ def mark_payment_detected(
     return payment
 
 
+def restore_expired_payment_from_on_time_transfer(
+    payment: Payment,
+    transaction_hash: str,
+    transferred_at: datetime,
+    detected_at: datetime | None = None,
+) -> Payment:
+    """Correct an expired payment when its transfer was mined before expiry."""
+
+    if payment.status != PaymentStatus.EXPIRED:
+        raise PaymentLifecycleError(
+            "Only an expired payment can be restored from an on-time transfer"
+        )
+    if TRANSACTION_HASH_PATTERN.fullmatch(transaction_hash) is None:
+        raise PaymentLifecycleError(
+            "Transaction hash must start with 0x followed by 64 hexadecimal characters"
+        )
+
+    transfer_time = _as_utc(transferred_at)
+    creation_time = _as_utc(payment.created_at)
+    expiration_time = _as_utc(payment.expires_at)
+    if transfer_time < creation_time or transfer_time > expiration_time:
+        raise PaymentLifecycleError(
+            "An expired payment can only be restored by a transfer mined "
+            "during its payment window"
+        )
+
+    detection_time = _as_utc(detected_at or datetime.now(timezone.utc))
+    payment.status = PaymentStatus.CONFIRMING
+    payment.transaction_hash = transaction_hash.lower()
+    payment.detected_at = detection_time
+    return payment
+
+
 def mark_payment_confirmed(
     payment: Payment,
     confirmed_at: datetime | None = None,

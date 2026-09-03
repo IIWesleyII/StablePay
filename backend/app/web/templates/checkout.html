@@ -67,16 +67,16 @@
           <div class="instruction-step second-step">
             <span class="step-number">2</span>
             <div>
-              <h2>Submit the transaction hash</h2>
-              <p>StablePay uses it to match your transfer to this checkout.</p>
+              <h2>Wait for automatic confirmation</h2>
+              <p>StablePay scans Base Sepolia and will match the transfer automatically.</p>
             </div>
           </div>
 
           <form id="verify-form">
-            <label for="transaction-hash">Transaction hash</label>
+            <label for="transaction-hash">Transaction hash <span class="optional-label">Optional manual check</span></label>
             <input id="transaction-hash" name="transaction-hash" placeholder="0x…" autocomplete="off" spellcheck="false" required>
             <p id="verify-message" class="form-message hidden" role="alert"></p>
-            <button id="verify-button" class="button button-primary button-full" type="submit">Verify payment</button>
+            <button id="verify-button" class="button button-secondary button-full" type="submit">Check transaction now</button>
           </form>
         </div>
 

@@ -154,6 +154,7 @@ td code { color: var(--muted); font-size: 12px; }
 #verify-form { margin: 18px 0 20px 38px; }
 #verify-form label { margin-top: 0; }
 #transaction-hash { font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+.optional-label { float: right; color: var(--muted); font-size: 10px; font-weight: 600; }
 .checkout-result { padding: 46px 30px; text-align: center; }
 .checkout-result h2, #checkout-error h1 { margin: 14px 0 8px; font-size: 23px; }
 .checkout-result p { max-width: 370px; margin: 0 auto; color: var(--muted); font-size: 13px; line-height: 1.6; }

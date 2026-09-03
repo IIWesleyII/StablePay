@@ -36,6 +36,7 @@ from services.payment_verification import PaymentVerificationError
 from services.payment_verification import find_matching_transfer
 from services.webhook_events import WebhookEventError
 from services.webhook_events import create_payment_confirmed_event
+from services.webhook_events import get_payment_webhook_url
 
 router = APIRouter(
     prefix="/payments",
@@ -209,6 +210,10 @@ async def verify_payment(
     try:
         became_confirmed = False
 
+        payment.payer_address = matching_transfer.sender
+        payment.transaction_block_number = matching_transfer.block_number
+        payment.transaction_log_index = matching_transfer.log_index
+
         if payment.status == PaymentStatus.PENDING:
             mark_payment_detected(payment, transaction_hash, current_time)
 
@@ -225,7 +230,7 @@ async def verify_payment(
             became_confirmed = True
 
         if became_confirmed:
-            webhook_url = await _get_payment_webhook_url(payment, session)
+            webhook_url = await get_payment_webhook_url(payment, session)
             session.add(
                 create_payment_confirmed_event(
                     payment,
@@ -274,19 +279,3 @@ def _database_timestamp_as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
-
-
-async def _get_payment_webhook_url(
-    payment: Payment,
-    session: AsyncSession,
-) -> str:
-    """Use merchant configuration while retaining legacy-payment behavior."""
-
-    if payment.merchant_id is None:
-        return settings.merchant_webhook_url
-
-    merchant = await session.get(Merchant, payment.merchant_id)
-    if merchant is None:
-        raise WebhookEventError("Payment merchant account no longer exists")
-
-    return merchant.webhook_url

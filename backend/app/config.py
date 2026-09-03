@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     payment_expiration_minutes: int = Field(default=15, gt=0)
     payment_expiration_poll_seconds: int = Field(default=30, gt=0)
     payment_required_confirmations: int = Field(default=3, gt=0)
+    blockchain_monitor_enabled: bool = True
+    blockchain_monitor_poll_seconds: int = Field(default=5, gt=0)
+    blockchain_monitor_block_batch_size: int = Field(default=10, gt=0)
+    blockchain_monitor_initial_lookback_blocks: int = Field(default=1000, gt=0)
+    blockchain_monitor_confirmation_batch_size: int = Field(default=100, gt=0)
     merchant_webhook_url: str = "http://127.0.0.1:9000/webhooks/stablepay"
     merchant_webhook_secret: str | None = None
     webhook_delivery_poll_seconds: int = Field(default=2, gt=0)

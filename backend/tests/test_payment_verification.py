@@ -78,6 +78,9 @@ async def test_verified_transfer_confirms_payment(
     result = response.json()
     assert result["payment"]["status"] == "confirmed"
     assert result["payment"]["transaction_hash"] == TRANSACTION_HASH
+    assert result["payment"]["payer_address"] == SENDER_ADDRESS
+    assert result["payment"]["transaction_block_number"] == 100
+    assert result["payment"]["transaction_log_index"] == 0
     assert result["payment"]["detected_at"] is not None
     assert result["payment"]["confirmed_at"] is not None
     assert result["sender_address"] == SENDER_ADDRESS

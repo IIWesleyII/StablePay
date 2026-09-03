@@ -143,7 +143,7 @@ elements.verifyForm.addEventListener("submit", async (event) => {
     showVerifyMessage(error.message, true);
   } finally {
     elements.verifyButton.disabled = false;
-    elements.verifyButton.textContent = "Verify payment";
+    elements.verifyButton.textContent = "Check transaction now";
   }
 });
 

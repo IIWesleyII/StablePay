@@ -58,6 +58,26 @@ def test_payment_required_confirmations_must_be_positive():
         )
 
 
+@pytest.mark.parametrize(
+    "setting_name",
+    [
+        "blockchain_monitor_poll_seconds",
+        "blockchain_monitor_block_batch_size",
+        "blockchain_monitor_initial_lookback_blocks",
+        "blockchain_monitor_confirmation_batch_size",
+    ],
+)
+def test_blockchain_monitor_settings_must_be_positive(setting_name: str):
+    with pytest.raises(ValidationError, match=setting_name):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            _env_file=None,
+            **{setting_name: 0},
+        )
+
+
 def test_merchant_webhook_url_must_be_http():
     with pytest.raises(ValidationError, match="MERCHANT_WEBHOOK_URL"):
         Settings(

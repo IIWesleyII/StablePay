@@ -1,6 +1,8 @@
 import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone
 from decimal import Decimal
 from types import TracebackType
 from typing import Any
@@ -91,6 +93,8 @@ class UsdcTransfer:
     amount: Decimal
     block_number: int
     confirmations: int
+    block_hash: str | None = None
+    block_timestamp: datetime | None = None
 
 
 class BaseSepoliaClient:
@@ -239,6 +243,148 @@ class BaseSepoliaClient:
             )
 
         return transfers
+
+    async def get_latest_block_number(self) -> int:
+        """Return the current Base Sepolia head after validating the network."""
+
+        await self._require_base_sepolia()
+        try:
+            return await self._web3.eth.block_number
+        except Exception as error:
+            raise BlockchainConnectionError(
+                "Unable to read the latest Base Sepolia block"
+            ) from error
+
+    async def get_block_hash(self, block_number: int) -> str:
+        """Return one canonical block hash for durable cursor tracking."""
+
+        if block_number < 0:
+            raise BlockchainTransactionError("Block number cannot be negative")
+        await self._require_base_sepolia()
+        try:
+            block = await self._web3.eth.get_block(block_number)
+            return Web3.to_hex(block["hash"]).lower()
+        except Exception as error:
+            raise BlockchainConnectionError(
+                f"Unable to read Base Sepolia block {block_number}"
+            ) from error
+
+    async def get_usdc_transfer_logs(
+        self,
+        from_block: int,
+        to_block: int,
+        recipient_addresses: list[str],
+        latest_block: int | None = None,
+    ) -> list[UsdcTransfer]:
+        """Read USDC transfers to selected recipients across a block range."""
+
+        if from_block < 0 or to_block < from_block:
+            raise BlockchainTransactionError("Blockchain scan range is invalid")
+        if not recipient_addresses:
+            return []
+
+        try:
+            normalized_recipients = {
+                Web3.to_checksum_address(address) for address in recipient_addresses
+            }
+        except (TypeError, ValueError) as error:
+            raise BlockchainTransactionError(
+                "Blockchain scan contains an invalid recipient address"
+            ) from error
+
+        await self._require_base_sepolia()
+        recipient_topics = [
+            "0x" + "0" * 24 + address[2:].lower()
+            for address in sorted(normalized_recipients)
+        ]
+
+        try:
+            logs = await self._web3.eth.get_logs(
+                {
+                    "address": self._usdc_address,
+                    "fromBlock": from_block,
+                    "toBlock": to_block,
+                    "topics": [TRANSFER_EVENT_TOPIC, None, recipient_topics],
+                }
+            )
+            chain_head = (
+                latest_block
+                if latest_block is not None
+                else await self._web3.eth.block_number
+            )
+        except Exception as error:
+            raise BlockchainConnectionError(
+                f"Unable to read Base Sepolia USDC logs from block "
+                f"{from_block} to {to_block}"
+            ) from error
+
+        block_cache: dict[int, tuple[str, datetime]] = {}
+        transfers: list[UsdcTransfer] = []
+        for log in logs:
+            if log.get("removed", False):
+                continue
+            if log["address"].lower() != self._usdc_address.lower():
+                continue
+
+            topics = log["topics"]
+            if len(topics) < 3 or Web3.to_hex(topics[0]).lower() != TRANSFER_EVENT_TOPIC:
+                continue
+
+            try:
+                sender = _address_from_topic(topics[1])
+                recipient = _address_from_topic(topics[2])
+                raw_amount = int(Web3.to_hex(log["data"]), 16)
+                block_number = int(log["blockNumber"])
+                transaction_hash = Web3.to_hex(log["transactionHash"]).lower()
+                log_index = int(log["logIndex"])
+                log_block_hash = Web3.to_hex(log["blockHash"]).lower()
+            except (KeyError, TypeError, ValueError) as error:
+                raise BlockchainTransactionError(
+                    "USDC Transfer log contains invalid encoded data"
+                ) from error
+
+            if recipient not in normalized_recipients:
+                continue
+
+            if block_number not in block_cache:
+                try:
+                    block = await self._web3.eth.get_block(block_number)
+                    canonical_hash = Web3.to_hex(block["hash"]).lower()
+                    block_timestamp = datetime.fromtimestamp(
+                        int(block["timestamp"]),
+                        tz=timezone.utc,
+                    )
+                except Exception as error:
+                    raise BlockchainConnectionError(
+                        f"Unable to read Base Sepolia block {block_number}"
+                    ) from error
+                block_cache[block_number] = (canonical_hash, block_timestamp)
+
+            canonical_hash, block_timestamp = block_cache[block_number]
+            if log_block_hash != canonical_hash:
+                raise BlockchainTransactionError(
+                    "USDC Transfer log is no longer in the canonical block"
+                )
+
+            transfers.append(
+                UsdcTransfer(
+                    transaction_hash=transaction_hash,
+                    log_index=log_index,
+                    sender=sender,
+                    recipient=recipient,
+                    raw_amount=raw_amount,
+                    amount=Decimal(raw_amount) / Decimal(10**USDC_DECIMALS),
+                    block_number=block_number,
+                    confirmations=max(chain_head - block_number + 1, 0),
+                    block_hash=canonical_hash,
+                    block_timestamp=block_timestamp,
+                )
+            )
+
+        return sorted(
+            transfers,
+            key=lambda transfer: (transfer.block_number, transfer.log_index),
+        )
 
     async def _require_base_sepolia(self) -> int:
         try:

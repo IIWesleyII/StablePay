@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Boolean
+from sqlalchemy import BigInteger
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
@@ -189,6 +190,18 @@ class Payment(Base):
         String(66),
         nullable=True,
     )
+    payer_address: Mapped[str | None] = mapped_column(
+        String(42),
+        nullable=True,
+    )
+    transaction_block_number: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+    transaction_log_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -204,6 +217,39 @@ class Payment(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class BlockchainCursor(Base):
+    """Durable progress for one blockchain/token log scanner."""
+
+    __tablename__ = "blockchain_cursors"
+
+    id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+    )
+    chain: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+    )
+    token_address: Mapped[str] = mapped_column(
+        String(42),
+        nullable=False,
+    )
+    last_scanned_block: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+    )
+    last_scanned_block_hash: Mapped[str | None] = mapped_column(
+        String(66),
+        nullable=True,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 

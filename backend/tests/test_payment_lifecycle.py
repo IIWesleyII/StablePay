@@ -12,6 +12,7 @@ from services.payment_lifecycle import PaymentLifecycleError
 from services.payment_lifecycle import mark_payment_confirmed
 from services.payment_lifecycle import mark_payment_detected
 from services.payment_lifecycle import mark_payment_expired
+from services.payment_lifecycle import restore_expired_payment_from_on_time_transfer
 
 
 CREATED_AT = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
@@ -135,6 +136,48 @@ def test_naive_timestamp_is_rejected():
         )
 
     assert payment.status is PaymentStatus.PENDING
+
+
+def test_on_time_transfer_can_restore_an_expired_payment():
+    payment = make_payment()
+    mark_payment_expired(payment, EXPIRES_AT)
+    transfer_time = CREATED_AT + timedelta(minutes=5)
+    detection_time = EXPIRES_AT + timedelta(minutes=2)
+
+    restore_expired_payment_from_on_time_transfer(
+        payment,
+        TRANSACTION_HASH,
+        transferred_at=transfer_time,
+        detected_at=detection_time,
+    )
+
+    assert payment.status is PaymentStatus.CONFIRMING
+    assert payment.transaction_hash == TRANSACTION_HASH
+    assert payment.detected_at == detection_time
+
+
+@pytest.mark.parametrize(
+    "transfer_time",
+    [
+        CREATED_AT - timedelta(seconds=1),
+        EXPIRES_AT + timedelta(seconds=1),
+    ],
+)
+def test_expired_payment_rejects_transfer_outside_payment_window(
+    transfer_time: datetime,
+):
+    payment = make_payment()
+    mark_payment_expired(payment, EXPIRES_AT)
+
+    with pytest.raises(PaymentLifecycleError, match="during its payment window"):
+        restore_expired_payment_from_on_time_transfer(
+            payment,
+            TRANSACTION_HASH,
+            transferred_at=transfer_time,
+            detected_at=EXPIRES_AT + timedelta(minutes=2),
+        )
+
+    assert payment.status is PaymentStatus.EXPIRED
 
 
 @pytest.mark.asyncio

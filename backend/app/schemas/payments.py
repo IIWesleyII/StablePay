@@ -31,6 +31,9 @@ class PaymentResponse(BaseModel):
     recipient_address: str
     status: PaymentStatus
     transaction_hash: str | None
+    payer_address: str | None
+    transaction_block_number: int | None
+    transaction_log_index: int | None
     created_at: datetime
     expires_at: datetime
     detected_at: datetime | None

@@ -114,6 +114,67 @@ amount, and confirmation count, and then returns either `confirming` or
 There is no last-block time limit. However, submit the transaction hash before
 the payment request's `expires_at` time (15 minutes by default).
 
+## Automatic blockchain monitoring
+
+StablePay normally detects payments without the customer submitting a
+transaction hash. A background worker repeatedly:
+
+1. Reads the latest Base Sepolia block.
+2. Calculates the newest block that has the required confirmations.
+3. Scans USDC `Transfer` logs addressed to StablePay merchant wallets.
+4. Matches the exact recipient, amount, and payment time window.
+5. Confirms the payment and queues its webhook in the same database transaction.
+6. Saves a block cursor so a restart continues where the previous process ended.
+
+The scanner never signs or sends blockchain transactions. It only reads public
+chain data. It also never guesses when two open payments have the same wallet
+and amount: the cursor retains that block for retry, and the transaction-hash
+checkout form remains available as a manual way to disambiguate the payment.
+
+Configure the worker with these optional `.env` settings:
+
+```text
+BLOCKCHAIN_MONITOR_ENABLED=true
+BLOCKCHAIN_MONITOR_POLL_SECONDS=5
+BLOCKCHAIN_MONITOR_BLOCK_BATCH_SIZE=10
+BLOCKCHAIN_MONITOR_INITIAL_LOOKBACK_BLOCKS=1000
+BLOCKCHAIN_MONITOR_CONFIRMATION_BATCH_SIZE=100
+```
+
+Only confirmation-safe blocks are automatically settled. A transfer mined
+inside the payment window remains valid even if StablePay was temporarily
+offline and the local expiration worker ran before the blockchain scanner.
+
+Run one cycle manually from the project root when debugging:
+
+```bash
+./venv/Scripts/python.exe backend/run_monitor_once.py
+```
+
+The command prints the scanned range and reconciliation counts. It uses the
+same cursor and matching code as the background worker.
+
+The default 10-block batch is compatible with the public Base Sepolia RPC log
+limit. When StablePay is behind its saved cursor, it processes these small
+batches back-to-back and resumes five-second polling after catching up.
+
+To demonstrate automatic detection end to end, create a payment while the API
+is running and send it with the test script's monitor-only mode:
+
+```bash
+set -a
+source .env
+set +a
+
+./venv/Scripts/python.exe backend/send_test_payment.py \
+  pay_REPLACE_WITH_PAYMENT_ID \
+  --private-key-env TEST_PRIVATE_KEY \
+  --monitor-only
+```
+
+After you approve the broadcast, the script waits for StablePay to discover the
+transfer. It never submits the transaction hash to the verification endpoint.
+
 ### Sending the test payment from a script
 
 After creating a pending payment, run this from the project root:

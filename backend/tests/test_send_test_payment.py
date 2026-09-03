@@ -9,6 +9,7 @@ from backend.send_test_payment import PaymentScriptError
 from backend.send_test_payment import load_api_key
 from backend.send_test_payment import load_test_account
 from backend.send_test_payment import validate_payment
+from backend.send_test_payment import wait_for_automatic_confirmation
 
 
 RECIPIENT_ADDRESS = "0x2222222222222222222222222222222222222222"
@@ -78,3 +79,34 @@ def test_missing_merchant_api_key_is_rejected(monkeypatch):
 
     with pytest.raises(PaymentScriptError, match="is not configured"):
         load_api_key("STABLEPAY_API_KEY")
+
+
+def test_automatic_confirmation_wait_does_not_submit_transaction_hash(monkeypatch):
+    responses = iter(
+        [
+            {"id": "pay_test", "status": "pending"},
+            {"id": "pay_test", "status": "confirmed"},
+        ]
+    )
+    requests = []
+
+    def fake_request(method, url, body=None, headers=None):
+        requests.append((method, url, body, headers))
+        return next(responses)
+
+    monkeypatch.setattr("backend.send_test_payment.request_json", fake_request)
+    monkeypatch.setattr("backend.send_test_payment.time.sleep", lambda _: None)
+
+    payment = wait_for_automatic_confirmation(
+        "http://127.0.0.1:8000",
+        "pay_test",
+        "sp_test.key_example.secret",
+    )
+
+    assert payment["status"] == "confirmed"
+    assert [request[0] for request in requests] == ["GET", "GET"]
+    assert all(request[2] is None for request in requests)
+    assert all(
+        request[3]["Authorization"] == "Bearer sp_test.key_example.secret"
+        for request in requests
+    )

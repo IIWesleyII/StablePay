@@ -4,6 +4,10 @@ from datetime import datetime
 from datetime import timezone
 from uuid import uuid4
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from config import settings
+from database.models import Merchant
 from database.models import Payment
 from database.models import WebhookEvent
 from domain.payments import PaymentStatus
@@ -15,6 +19,22 @@ PAYMENT_CONFIRMED_EVENT = "payment.confirmed"
 
 class WebhookEventError(ValueError):
     """Raised when a webhook event cannot be safely created."""
+
+
+async def get_payment_webhook_url(
+    payment: Payment,
+    session: AsyncSession,
+) -> str:
+    """Use merchant configuration while retaining legacy-payment behavior."""
+
+    if payment.merchant_id is None:
+        return settings.merchant_webhook_url
+
+    merchant = await session.get(Merchant, payment.merchant_id)
+    if merchant is None:
+        raise WebhookEventError("Payment merchant account no longer exists")
+
+    return merchant.webhook_url
 
 
 def create_payment_confirmed_event(
@@ -52,6 +72,9 @@ def create_payment_confirmed_event(
                 "recipient_address": payment.recipient_address,
                 "status": payment.status.value,
                 "transaction_hash": payment.transaction_hash,
+                "payer_address": payment.payer_address,
+                "transaction_block_number": payment.transaction_block_number,
+                "transaction_log_index": payment.transaction_log_index,
                 "confirmed_at": confirmation_time.isoformat(),
             }
         },

@@ -249,6 +249,32 @@ def wait_for_stablepay_confirmation(
         time.sleep(2)
 
 
+def wait_for_automatic_confirmation(
+    api_url: str,
+    payment_id: str,
+    api_key: str,
+    timeout_seconds: int = 180,
+) -> dict[str, Any]:
+    """Wait for the background blockchain monitor without submitting proof."""
+
+    deadline = time.monotonic() + timeout_seconds
+    previous_status = None
+    while True:
+        payment = request_json(
+            "GET",
+            f"{api_url}/payments/{payment_id}",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        status = payment["status"]
+        if status != previous_status:
+            print(f"StablePay automatic-monitor status: {status}")
+            previous_status = status
+
+        if status in {"confirmed", "expired"} or time.monotonic() >= deadline:
+            return payment
+        time.sleep(2)
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Pay a StablePay request with Base Sepolia test USDC",
@@ -272,6 +298,14 @@ def parse_arguments() -> argparse.Namespace:
         "--api-key-env",
         default="STABLEPAY_API_KEY",
         help="Environment variable containing the merchant API key",
+    )
+    parser.add_argument(
+        "--monitor-only",
+        action="store_true",
+        help=(
+            "Do not submit the transaction hash; wait for the automatic "
+            "blockchain monitor"
+        ),
     )
     return parser.parse_args()
 
@@ -346,15 +380,25 @@ def main() -> int:
         if receipt["status"] != 1:
             raise PaymentScriptError("Transaction was mined but reverted")
 
-        result = wait_for_stablepay_confirmation(
-            api_url,
-            arguments.payment_id,
-            transaction_hash,
-        )
-        if result["payment"]["status"] != "confirmed":
+        if arguments.monitor_only:
+            monitored_payment = wait_for_automatic_confirmation(
+                api_url,
+                arguments.payment_id,
+                api_key,
+            )
+            final_status = monitored_payment["status"]
+        else:
+            result = wait_for_stablepay_confirmation(
+                api_url,
+                arguments.payment_id,
+                transaction_hash,
+            )
+            final_status = result["payment"]["status"]
+
+        if final_status != "confirmed":
             print(
                 "The transaction succeeded but StablePay still needs more "
-                "confirmations. Re-submit the same hash to the verify endpoint."
+                "time to confirm it. You can safely check the same payment again."
             )
         return 0
     except PaymentScriptError as error:
