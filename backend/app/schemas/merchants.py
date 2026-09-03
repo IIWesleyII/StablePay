@@ -1,11 +1,14 @@
 from datetime import datetime
 from datetime import timezone
+from decimal import Decimal
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
+
+from domain.ledger import LedgerTransactionType
 
 
 class MerchantResponse(BaseModel):
@@ -89,3 +92,22 @@ class MerchantApiKeyCreatedResponse(MerchantApiKeyResponse):
     """A newly created key whose plaintext is returned exactly once."""
 
     api_key: str
+
+
+class MerchantBalanceResponse(BaseModel):
+    """Internal USDC owed to a merchant before blockchain settlement."""
+
+    merchant_id: str
+    available_balance: Decimal
+    currency: str
+
+
+class MerchantMicropaymentResponse(BaseModel):
+    """A receipt the destination merchant can independently verify."""
+
+    id: str
+    transaction_type: LedgerTransactionType
+    amount: Decimal
+    currency: str
+    reference: str
+    created_at: datetime

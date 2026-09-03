@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.merchants import router as merchants_router
 from api.payments import router as payments_router
+from api.vaults import router as vaults_router
 from api.web import APP_DIRECTORY
 from api.web import router as web_router
 from workers.blockchain_monitor import run_blockchain_monitor_worker
@@ -54,4 +55,5 @@ app.mount(
 )
 app.include_router(payments_router)
 app.include_router(merchants_router)
+app.include_router(vaults_router)
 app.include_router(web_router)

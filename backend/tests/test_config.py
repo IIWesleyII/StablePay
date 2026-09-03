@@ -47,6 +47,32 @@ def test_base_sepolia_usdc_address_must_be_valid():
         )
 
 
+def test_stablepay_vault_address_must_be_valid_when_configured():
+    with pytest.raises(ValidationError, match="STABLEPAY_VAULT_ADDRESS"):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            stablepay_vault_address="not-an-address",
+            _env_file=None,
+        )
+
+
+@pytest.mark.parametrize(
+    "setting_name",
+    ["vault_challenge_expiration_minutes", "vault_deposit_expiration_minutes"],
+)
+def test_vault_expiration_settings_must_be_positive(setting_name: str):
+    with pytest.raises(ValidationError, match=setting_name):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            _env_file=None,
+            **{setting_name: 0},
+        )
+
+
 def test_payment_required_confirmations_must_be_positive():
     with pytest.raises(ValidationError, match="payment_required_confirmations"):
         Settings(

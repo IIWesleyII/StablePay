@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     merchant_wallet_address: str
     base_sepolia_rpc_url: str
     base_sepolia_usdc_address: str = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    stablepay_vault_address: str | None = None
+    vault_challenge_expiration_minutes: int = Field(default=5, gt=0)
+    vault_deposit_expiration_minutes: int = Field(default=15, gt=0)
     payment_expiration_minutes: int = Field(default=15, gt=0)
     payment_expiration_poll_seconds: int = Field(default=30, gt=0)
     payment_required_confirmations: int = Field(default=3, gt=0)
@@ -120,6 +123,19 @@ class Settings(BaseSettings):
         if value.lower() == "0x0000000000000000000000000000000000000000":
             raise ValueError("BASE_SEPOLIA_USDC_ADDRESS must not be the zero address")
 
+        return value
+
+    @field_validator("stablepay_vault_address")
+    @classmethod
+    def validate_stablepay_vault_address(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if re.fullmatch(r"0x[0-9a-fA-F]{40}", value) is None:
+            raise ValueError(
+                "STABLEPAY_VAULT_ADDRESS must be a 42-character Ethereum address"
+            )
+        if value.lower() == "0x0000000000000000000000000000000000000000":
+            raise ValueError("STABLEPAY_VAULT_ADDRESS must not be the zero address")
         return value
 
 

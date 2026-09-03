@@ -13,11 +13,20 @@ from api.authentication import get_authenticated_merchant
 from database.database import get_session
 from database.models import Merchant
 from database.models import MerchantApiKey
+from database.models import LedgerAccount
+from database.models import LedgerEntry
+from database.models import LedgerTransaction
+from domain.ledger import LedgerOwnerType
+from domain.ledger import LedgerTransactionType
+from schemas.merchants import MerchantBalanceResponse
+from schemas.merchants import MerchantMicropaymentResponse
 from schemas.merchants import MerchantApiKeyCreate
 from schemas.merchants import MerchantApiKeyCreatedResponse
 from schemas.merchants import MerchantApiKeyResponse
 from schemas.merchants import MerchantResponse
 from schemas.merchants import MerchantUpdate
+from schemas.vaults import LedgerActivityResponse
+from services.ledger import atomic_to_usdc
 from services.api_keys import ApiKeyError
 from services.api_keys import generate_merchant_api_key
 from services.merchants import DuplicateMerchantWalletError
@@ -171,3 +180,108 @@ def _database_timestamp_as_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+@router.get("/me/balance", response_model=MerchantBalanceResponse)
+async def get_current_merchant_balance(
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return USDC accumulated through internal micropayments."""
+
+    account = await _find_merchant_ledger_account(session, merchant.id)
+    return MerchantBalanceResponse(
+        merchant_id=merchant.id,
+        available_balance=(account.balance if account is not None else 0),
+        currency="USDC",
+    )
+
+
+@router.get("/me/activity", response_model=list[LedgerActivityResponse])
+async def list_current_merchant_activity(
+    limit: int = 50,
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return the merchant side of recent internal ledger transfers."""
+
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    account = await _find_merchant_ledger_account(session, merchant.id)
+    if account is None:
+        return []
+    result = await session.execute(
+        select(LedgerTransaction, LedgerEntry.amount_atomic)
+        .join(
+            LedgerEntry,
+            LedgerEntry.transaction_id == LedgerTransaction.id,
+        )
+        .where(LedgerEntry.account_id == account.id)
+        .order_by(LedgerTransaction.created_at.desc(), LedgerTransaction.id.desc())
+        .limit(limit)
+    )
+    return [
+        LedgerActivityResponse(
+            id=transaction.id,
+            transaction_type=transaction.transaction_type,
+            amount=atomic_to_usdc(signed_amount),
+            reference=transaction.reference_id,
+            created_at=transaction.created_at,
+        )
+        for transaction, signed_amount in result
+    ]
+
+
+async def _find_merchant_ledger_account(
+    session: AsyncSession,
+    merchant_id: str,
+) -> LedgerAccount | None:
+    result = await session.execute(
+        select(LedgerAccount).where(
+            LedgerAccount.owner_type == LedgerOwnerType.MERCHANT,
+            LedgerAccount.owner_id == merchant_id,
+            LedgerAccount.currency == "USDC",
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+@router.get(
+    "/me/micropayments/{transaction_id}",
+    response_model=MerchantMicropaymentResponse,
+)
+async def get_current_merchant_micropayment(
+    transaction_id: str,
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    """Verify that one internal micropayment belongs to this merchant."""
+
+    account = await _find_merchant_ledger_account(session, merchant.id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Micropayment not found")
+    result = await session.execute(
+        select(LedgerTransaction)
+        .join(
+            LedgerEntry,
+            LedgerEntry.transaction_id == LedgerTransaction.id,
+        )
+        .where(
+            LedgerTransaction.id == transaction_id,
+            LedgerTransaction.transaction_type
+            == LedgerTransactionType.MICROPAYMENT,
+            LedgerEntry.account_id == account.id,
+            LedgerEntry.amount_atomic > 0,
+        )
+    )
+    transaction = result.scalar_one_or_none()
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Micropayment not found")
+    return MerchantMicropaymentResponse(
+        id=transaction.id,
+        transaction_type=transaction.transaction_type,
+        amount=transaction.amount,
+        currency="USDC",
+        reference=transaction.reference_id,
+        created_at=transaction.created_at,
+    )

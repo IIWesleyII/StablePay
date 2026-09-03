@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import Boolean
 from sqlalchemy import BigInteger
+from sqlalchemy import CheckConstraint
 from sqlalchemy import DateTime
 from sqlalchemy import Enum as SqlEnum
 from sqlalchemy import ForeignKey
@@ -20,6 +21,9 @@ from sqlalchemy.orm import mapped_column
 
 from database.database import Base
 from domain.payments import PaymentStatus
+from domain.ledger import LedgerOwnerType
+from domain.ledger import LedgerTransactionType
+from domain.ledger import VaultDepositStatus
 from domain.webhooks import WebhookDeliveryStatus
 
 
@@ -35,6 +39,32 @@ webhook_delivery_status_type = SqlEnum(
     WebhookDeliveryStatus,
     name="webhook_delivery_status",
     values_callable=lambda status_enum: [status.value for status in status_enum],
+    validate_strings=True,
+    create_constraint=True,
+)
+
+vault_deposit_status_type = SqlEnum(
+    VaultDepositStatus,
+    name="vault_deposit_status",
+    values_callable=lambda status_enum: [status.value for status in status_enum],
+    validate_strings=True,
+    create_constraint=True,
+)
+
+ledger_owner_type = SqlEnum(
+    LedgerOwnerType,
+    name="ledger_owner_type",
+    values_callable=lambda owner_enum: [owner.value for owner in owner_enum],
+    validate_strings=True,
+    create_constraint=True,
+)
+
+ledger_transaction_type = SqlEnum(
+    LedgerTransactionType,
+    name="ledger_transaction_type",
+    values_callable=lambda transaction_enum: [
+        transaction_type.value for transaction_type in transaction_enum
+    ],
     validate_strings=True,
     create_constraint=True,
 )
@@ -251,6 +281,226 @@ class BlockchainCursor(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class VaultChallenge(Base):
+    """A short-lived message used to prove control of a wallet once."""
+
+    __tablename__ = "vault_challenges"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class Vault(Base):
+    """A customer's authenticated internal USDC balance."""
+
+    __tablename__ = "vaults"
+    __table_args__ = (
+        UniqueConstraint("wallet_address", name="uq_vaults_wallet_address"),
+        UniqueConstraint("access_token_hash", name="uq_vaults_access_token_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False)
+    access_token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    access_token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class VaultDeposit(Base):
+    """An expected on-chain USDC transfer into StablePay's vault wallet."""
+
+    __tablename__ = "vault_deposits"
+    __table_args__ = (
+        CheckConstraint("amount_atomic > 0", name="ck_vault_deposits_positive"),
+        UniqueConstraint(
+            "transaction_hash",
+            "transaction_log_index",
+            name="uq_vault_deposits_transaction_log",
+        ),
+        Index(
+            "ix_vault_deposits_status_created_at",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    vault_id: Mapped[str] = mapped_column(
+        ForeignKey("vaults.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    amount_atomic: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[VaultDepositStatus] = mapped_column(
+        vault_deposit_status_type,
+        nullable=False,
+        default=VaultDepositStatus.PENDING,
+        server_default=VaultDepositStatus.PENDING.value,
+    )
+    transaction_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    transaction_block_number: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+    transaction_log_index: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    @property
+    def amount(self) -> Decimal:
+        return Decimal(self.amount_atomic) / Decimal(1_000_000)
+
+
+class LedgerAccount(Base):
+    """One cached balance whose history is represented by ledger entries."""
+
+    __tablename__ = "ledger_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_type",
+            "owner_id",
+            "currency",
+            name="uq_ledger_accounts_owner_currency",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    owner_type: Mapped[LedgerOwnerType] = mapped_column(
+        ledger_owner_type,
+        nullable=False,
+    )
+    owner_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="USDC",
+        server_default="USDC",
+    )
+    balance_atomic: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    @property
+    def balance(self) -> Decimal:
+        return Decimal(self.balance_atomic) / Decimal(1_000_000)
+
+
+class LedgerTransaction(Base):
+    """A logical transfer represented by two or more balanced entries."""
+
+    __tablename__ = "ledger_transactions"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_ledger_transactions_idempotency"),
+        CheckConstraint("amount_atomic > 0", name="ck_ledger_transactions_positive"),
+        Index("ix_ledger_transactions_created_at", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    transaction_type: Mapped[LedgerTransactionType] = mapped_column(
+        ledger_transaction_type,
+        nullable=False,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_account_id: Mapped[str] = mapped_column(
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    destination_account_id: Mapped[str] = mapped_column(
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    amount_atomic: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reference_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    @property
+    def amount(self) -> Decimal:
+        return Decimal(self.amount_atomic) / Decimal(1_000_000)
+
+
+class LedgerEntry(Base):
+    """One immutable signed side of a balanced ledger transaction."""
+
+    __tablename__ = "ledger_entries"
+    __table_args__ = (
+        CheckConstraint("amount_atomic != 0", name="ck_ledger_entries_nonzero"),
+        Index(
+            "ix_ledger_entries_account_created_at",
+            "account_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(
+        ForeignKey("ledger_transactions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    account_id: Mapped[str] = mapped_column(
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    amount_atomic: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    @property
+    def amount(self) -> Decimal:
+        return Decimal(self.amount_atomic) / Decimal(1_000_000)
 
 
 class WebhookEvent(Base):
