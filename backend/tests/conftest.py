@@ -10,6 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 
 
@@ -31,6 +32,12 @@ async def test_session() -> AsyncIterator[AsyncSession]:
         "sqlite+aiosqlite://",
         poolclass=StaticPool,
     )
+
+    @event.listens_for(test_engine.sync_engine, "connect")
+    def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
     async with test_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

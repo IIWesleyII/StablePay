@@ -264,6 +264,13 @@ curl -X POST http://127.0.0.1:8000/vaults/micropayments \
   -d '{"merchant_id":"mch_REPLACE_ME","amount":"0.001","reference":"weather-api-call-42"}'
 ```
 
+For a complete local smoke test that discovers the merchant, submits the
+payment twice, verifies idempotency, and checks both balances:
+
+```bash
+./venv/Scripts/python.exe backend/make_test_micropayment.py 0.001
+```
+
 Inspect customer history and the merchant's accumulated balance:
 
 ```bash

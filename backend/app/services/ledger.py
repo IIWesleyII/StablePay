@@ -177,7 +177,11 @@ async def post_ledger_transfer(
     )
     locked_source.balance_atomic -= amount_atomic
     locked_destination.balance_atomic += amount_atomic
-    session.add_all([transaction, debit, credit])
+    # Flush the parent first because entry IDs reference it directly without an
+    # ORM relationship that SQLAlchemy could otherwise use to infer ordering.
+    session.add(transaction)
+    await session.flush()
+    session.add_all([debit, credit])
     await session.flush()
 
     return PostedLedgerTransfer(
