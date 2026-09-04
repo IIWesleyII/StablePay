@@ -22,6 +22,8 @@ async def test_dashboard_page_is_public_shell_without_merchant_data(
     assert response.headers["content-type"].startswith("text/html")
     assert "Merchant dashboard" in response.text
     assert "StablePay API key" in response.text
+    assert "Merchant USDC balance" in response.text
+    assert "Request settlement" in response.text
     assert "/static/dashboard.js" in response.text
     assert "mch_authenticated_test" not in response.text
 
@@ -37,6 +39,7 @@ async def test_dashboard_static_assets_are_served(client: AsyncClient):
     assert "--brand:" in css_response.text
     assert javascript_response.status_code == 200
     assert "sessionStorage" in javascript_response.text
+    assert "/merchants/me/settlements" in javascript_response.text
     assert favicon_response.status_code == 200
     assert favicon_response.headers["content-type"].startswith("image/svg+xml")
 

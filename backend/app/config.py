@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from decimal import Decimal
 from typing import Self
 from urllib.parse import urlparse
 
@@ -29,6 +30,13 @@ class Settings(BaseSettings):
     stablepay_vault_address: str | None = None
     vault_challenge_expiration_minutes: int = Field(default=5, gt=0)
     vault_deposit_expiration_minutes: int = Field(default=15, gt=0)
+    settlement_minimum_amount: Decimal = Field(
+        default=Decimal("0.000001"),
+        gt=0,
+        max_digits=30,
+        decimal_places=6,
+    )
+    settlement_confirmation_batch_size: int = Field(default=20, gt=0)
     payment_expiration_minutes: int = Field(default=15, gt=0)
     payment_expiration_poll_seconds: int = Field(default=30, gt=0)
     payment_required_confirmations: int = Field(default=3, gt=0)

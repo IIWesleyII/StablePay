@@ -17,6 +17,15 @@ const elements = {
   merchantName: document.querySelector("#merchant-name"),
   merchantWallet: document.querySelector("#merchant-wallet"),
   merchantWebhook: document.querySelector("#merchant-webhook"),
+  availableBalance: document.querySelector("#available-balance"),
+  reservedBalance: document.querySelector("#reserved-balance"),
+  settledBalance: document.querySelector("#settled-balance"),
+  settlementForm: document.querySelector("#settlement-form"),
+  settlementAmount: document.querySelector("#settlement-amount"),
+  settlementError: document.querySelector("#settlement-error"),
+  settlementsEmpty: document.querySelector("#settlements-empty"),
+  settlementsTableWrap: document.querySelector("#settlements-table-wrap"),
+  settlementsBody: document.querySelector("#settlements-body"),
   totalCount: document.querySelector("#total-count"),
   pendingCount: document.querySelector("#pending-count"),
   confirmingCount: document.querySelector("#confirming-count"),
@@ -186,6 +195,81 @@ function renderPayments(result) {
   setHidden(elements.pagination, result.total <= state.limit);
 }
 
+function settlementExplorerUrl(transactionHash) {
+  return `https://sepolia.basescan.org/tx/${transactionHash}`;
+}
+
+function makeSettlementRow(settlement) {
+  const row = document.createElement("tr");
+  const idCell = document.createElement("td");
+  const idCode = document.createElement("code");
+  idCode.textContent = `${settlement.id.slice(0, 12)}…`;
+  idCode.title = settlement.id;
+  idCell.append(idCode);
+
+  const amountCell = document.createElement("td");
+  amountCell.textContent = `${formatAmount(settlement.amount)} ${settlement.currency}`;
+  const statusCell = document.createElement("td");
+  const status = document.createElement("span");
+  status.className = `status-pill ${settlement.status}`;
+  status.textContent = settlement.status.replace("_", " ");
+  statusCell.append(status);
+  const destinationCell = document.createElement("td");
+  const destination = document.createElement("code");
+  destination.textContent = `${settlement.destination_address.slice(0, 10)}…`;
+  destination.title = settlement.destination_address;
+  destinationCell.append(destination);
+
+  const actionCell = document.createElement("td");
+  actionCell.className = "table-actions";
+  if (settlement.transaction_hash) {
+    const explorer = document.createElement("a");
+    explorer.href = settlementExplorerUrl(settlement.transaction_hash);
+    explorer.target = "_blank";
+    explorer.rel = "noopener";
+    explorer.textContent = "Explorer ↗";
+    actionCell.append(explorer);
+  } else if (settlement.status === "pending") {
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => cancelSettlement(settlement.id));
+    actionCell.append(cancel);
+  }
+
+  row.append(idCell, amountCell, statusCell, destinationCell, actionCell);
+  return row;
+}
+
+function renderSettlementData(balance, settlements) {
+  elements.availableBalance.textContent = `${formatAmount(balance.available_balance)} USDC`;
+  elements.reservedBalance.textContent = `${formatAmount(balance.reserved_balance)} USDC`;
+  elements.settledBalance.textContent = `${formatAmount(balance.settled_balance)} USDC`;
+  elements.settlementsBody.replaceChildren(...settlements.map(makeSettlementRow));
+  setHidden(elements.settlementsEmpty, settlements.length !== 0);
+  setHidden(elements.settlementsTableWrap, settlements.length === 0);
+}
+
+async function loadSettlementData() {
+  const [balance, settlements] = await Promise.all([
+    apiRequest("/merchants/me/balance"),
+    apiRequest("/merchants/me/settlements?limit=10"),
+  ]);
+  renderSettlementData(balance, settlements);
+}
+
+async function cancelSettlement(settlementId) {
+  try {
+    await apiRequest(`/merchants/me/settlements/${settlementId}/cancel`, {
+      method: "POST",
+    });
+    await loadSettlementData();
+    showToast("Settlement cancelled; balance restored");
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function loadPayments() {
   setHidden(elements.paymentsLoading, false);
   const parameters = new URLSearchParams({
@@ -201,6 +285,7 @@ async function loadDashboard() {
   const [merchant] = await Promise.all([
     apiRequest("/merchants/me"),
     loadPayments(),
+    loadSettlementData(),
   ]);
   renderMerchant(merchant);
   showDashboard();
@@ -219,12 +304,41 @@ elements.loginForm.addEventListener("submit", async (event) => {
     sessionStorage.setItem("stablepay_api_key", state.apiKey);
     renderMerchant(merchant);
     showDashboard();
-    await loadPayments();
+    await Promise.all([loadPayments(), loadSettlementData()]);
   } catch (error) {
     showLogin(error.message);
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "Continue";
+  }
+});
+
+elements.settlementForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = elements.settlementForm.querySelector("button[type='submit']");
+  const amount = elements.settlementAmount.value.trim();
+  setHidden(elements.settlementError, true);
+  button.disabled = true;
+  button.textContent = "Reserving…";
+  try {
+    const body = amount ? { amount } : {};
+    await apiRequest("/merchants/me/settlements", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify(body),
+    });
+    elements.settlementAmount.value = "";
+    await loadSettlementData();
+    showToast("Settlement requested");
+  } catch (error) {
+    elements.settlementError.textContent = error.message;
+    setHidden(elements.settlementError, false);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Request settlement";
   }
 });
 

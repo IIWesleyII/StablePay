@@ -21,6 +21,7 @@ from sqlalchemy.orm import mapped_column
 
 from database.database import Base
 from domain.payments import PaymentStatus
+from domain.settlements import SettlementStatus
 from domain.ledger import LedgerOwnerType
 from domain.ledger import LedgerTransactionType
 from domain.ledger import VaultDepositStatus
@@ -65,6 +66,14 @@ ledger_transaction_type = SqlEnum(
     values_callable=lambda transaction_enum: [
         transaction_type.value for transaction_type in transaction_enum
     ],
+    validate_strings=True,
+    create_constraint=True,
+)
+
+settlement_status_type = SqlEnum(
+    SettlementStatus,
+    name="settlement_status",
+    values_callable=lambda status_enum: [status.value for status in status_enum],
     validate_strings=True,
     create_constraint=True,
 )
@@ -496,6 +505,102 @@ class LedgerEntry(Base):
         DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
+    )
+
+    @property
+    def amount(self) -> Decimal:
+        return Decimal(self.amount_atomic) / Decimal(1_000_000)
+
+
+class Settlement(Base):
+    """One aggregate on-chain payout of a merchant's internal balance."""
+
+    __tablename__ = "settlements"
+    __table_args__ = (
+        CheckConstraint("amount_atomic > 0", name="ck_settlements_positive"),
+        UniqueConstraint(
+            "merchant_id",
+            "idempotency_key",
+            name="uq_settlements_merchant_idempotency",
+        ),
+        UniqueConstraint(
+            "transaction_hash",
+            name="uq_settlements_transaction_hash",
+        ),
+        Index(
+            "ix_settlements_status_created_at",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "ix_settlements_merchant_created_at",
+            "merchant_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    merchant_id: Mapped[str] = mapped_column(
+        ForeignKey("merchants.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    amount_atomic: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    currency: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="USDC",
+        server_default="USDC",
+    )
+    chain: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="base-sepolia",
+        server_default="base-sepolia",
+    )
+    destination_address: Mapped[str] = mapped_column(String(42), nullable=False)
+    status: Mapped[SettlementStatus] = mapped_column(
+        settlement_status_type,
+        nullable=False,
+        default=SettlementStatus.PENDING,
+        server_default=SettlementStatus.PENDING.value,
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    reservation_ledger_transaction_id: Mapped[str] = mapped_column(
+        ForeignKey("ledger_transactions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    completion_ledger_transaction_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ledger_transactions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    transaction_hash: Mapped[str | None] = mapped_column(String(66), nullable=True)
+    transaction_nonce: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    signed_transaction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    broadcast_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    failed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     @property

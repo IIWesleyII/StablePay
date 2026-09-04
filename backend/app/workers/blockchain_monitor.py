@@ -7,6 +7,7 @@ from blockchain.base import BaseSepoliaClient
 from config import settings
 from database.database import SessionLocal
 from services.blockchain_monitor import monitor_blockchain_once
+from services.settlement_monitor import refresh_submitted_settlements
 from services.vault_monitor import monitor_vault_deposits_once
 
 
@@ -26,6 +27,7 @@ async def run_blockchain_monitor_worker(stop_event: asyncio.Event) -> None:
         while not stop_event.is_set():
             result = None
             vault_result = None
+            settlement_result = None
             async with SessionLocal() as session:
                 try:
                     result = await monitor_blockchain_once(
@@ -34,6 +36,10 @@ async def run_blockchain_monitor_worker(stop_event: asyncio.Event) -> None:
                     )
                     if settings.stablepay_vault_address is not None:
                         vault_result = await monitor_vault_deposits_once(
+                            session,
+                            blockchain_client,
+                        )
+                        settlement_result = await refresh_submitted_settlements(
                             session,
                             blockchain_client,
                         )
@@ -69,6 +75,18 @@ async def run_blockchain_monitor_worker(stop_event: asyncio.Event) -> None:
                             "Vault scan found %s ambiguous transfer(s); "
                             "cursor retained for retry",
                             vault_result.ambiguous_transfers,
+                        )
+                    if settlement_result is not None and (
+                        settlement_result.confirmed
+                        or settlement_result.failed
+                        or settlement_result.review_required
+                    ):
+                        logger.info(
+                            "Settlement monitor confirmed %s, failed %s, and "
+                            "flagged %s for review",
+                            settlement_result.confirmed,
+                            settlement_result.failed,
+                            settlement_result.review_required,
                         )
 
             still_catching_up = (

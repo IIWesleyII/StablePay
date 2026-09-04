@@ -1,7 +1,7 @@
 [X] Merchant accounts and API keys.
-[]  Basic merchant dashboard and checkout page.
-[]  Automatic reconciliation and blockchain monitoring.
-[]  Micropayment vault and internal balance ledger.
-[]  Batched merchant settlement.
+[X]  Basic merchant dashboard and checkout page.
+[X]  Automatic reconciliation and blockchain monitoring.
+[X]  Micropayment vault and internal balance ledger.
+[X]  Batched merchant settlement.
 []  Additional chains such as Base mainnet, Ethereum, or Solana.
 []  Deployment, logging, rate limiting, and production hardening.

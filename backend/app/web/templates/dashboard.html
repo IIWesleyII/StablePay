@@ -111,6 +111,36 @@
           </aside>
         </div>
 
+        <section class="panel settlement-panel">
+          <div class="panel-heading settlement-heading">
+            <div>
+              <p class="eyebrow">Micropayment settlement</p>
+              <h2>Merchant USDC balance</h2>
+              <p class="muted">Combine many internal payments into one Base Sepolia payout.</p>
+            </div>
+            <form id="settlement-form" class="settlement-form">
+              <label for="settlement-amount">Amount <span class="muted">(blank = all)</span></label>
+              <div class="settlement-form-row">
+                <input id="settlement-amount" inputmode="decimal" placeholder="All available">
+                <button class="button button-primary" type="submit">Request settlement</button>
+              </div>
+            </form>
+          </div>
+          <div class="balance-grid">
+            <div><span>Available</span><strong id="available-balance">0 USDC</strong></div>
+            <div><span>Reserved</span><strong id="reserved-balance">0 USDC</strong></div>
+            <div><span>Settled</span><strong id="settled-balance">0 USDC</strong></div>
+          </div>
+          <p id="settlement-error" class="form-message error-message hidden" role="alert"></p>
+          <div id="settlements-empty" class="compact-empty">No settlements requested yet.</div>
+          <div id="settlements-table-wrap" class="table-wrap hidden">
+            <table>
+              <thead><tr><th>Settlement</th><th>Amount</th><th>Status</th><th>Destination</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody id="settlements-body"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="panel payments-panel">
           <div class="panel-heading payments-heading">
             <div>

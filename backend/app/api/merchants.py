@@ -3,23 +3,32 @@ from datetime import timezone
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import Header
 from fastapi import HTTPException
 from fastapi import Response
 from sqlalchemy import or_
+from sqlalchemy import func
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.authentication import get_authenticated_merchant
+from config import settings
 from database.database import get_session
 from database.models import Merchant
 from database.models import MerchantApiKey
 from database.models import LedgerAccount
 from database.models import LedgerEntry
 from database.models import LedgerTransaction
+from database.models import Settlement
 from domain.ledger import LedgerOwnerType
 from domain.ledger import LedgerTransactionType
+from domain.settlements import SettlementStatus
 from schemas.merchants import MerchantBalanceResponse
 from schemas.merchants import MerchantMicropaymentResponse
+from schemas.merchants import SettlementCreate
+from schemas.merchants import SettlementCreatedResponse
+from schemas.merchants import SettlementResponse
 from schemas.merchants import MerchantApiKeyCreate
 from schemas.merchants import MerchantApiKeyCreatedResponse
 from schemas.merchants import MerchantApiKeyResponse
@@ -27,11 +36,15 @@ from schemas.merchants import MerchantResponse
 from schemas.merchants import MerchantUpdate
 from schemas.vaults import LedgerActivityResponse
 from services.ledger import atomic_to_usdc
+from services.ledger import usdc_to_atomic
 from services.api_keys import ApiKeyError
 from services.api_keys import generate_merchant_api_key
 from services.merchants import DuplicateMerchantWalletError
 from services.merchants import MerchantAccountError
 from services.merchants import update_merchant_account
+from services.settlements import SettlementError
+from services.settlements import cancel_settlement
+from services.settlements import create_settlement
 
 
 router = APIRouter(
@@ -190,9 +203,30 @@ async def get_current_merchant_balance(
     """Return USDC accumulated through internal micropayments."""
 
     account = await _find_merchant_ledger_account(session, merchant.id)
+    reserved_result = await session.execute(
+        select(func.coalesce(func.sum(Settlement.amount_atomic), 0)).where(
+            Settlement.merchant_id == merchant.id,
+            Settlement.status.in_(
+                [
+                    SettlementStatus.PENDING,
+                    SettlementStatus.BROADCASTING,
+                    SettlementStatus.SUBMITTED,
+                    SettlementStatus.REVIEW_REQUIRED,
+                ]
+            ),
+        )
+    )
+    settled_result = await session.execute(
+        select(func.coalesce(func.sum(Settlement.amount_atomic), 0)).where(
+            Settlement.merchant_id == merchant.id,
+            Settlement.status == SettlementStatus.CONFIRMED,
+        )
+    )
     return MerchantBalanceResponse(
         merchant_id=merchant.id,
         available_balance=(account.balance if account is not None else 0),
+        reserved_balance=atomic_to_usdc(int(reserved_result.scalar_one())),
+        settled_balance=atomic_to_usdc(int(settled_result.scalar_one())),
         currency="USDC",
     )
 
@@ -285,3 +319,160 @@ async def get_current_merchant_micropayment(
         reference=transaction.reference_id,
         created_at=transaction.created_at,
     )
+
+
+@router.post(
+    "/me/settlements",
+    response_model=SettlementCreatedResponse,
+    status_code=201,
+)
+async def request_current_merchant_settlement(
+    request: SettlementCreate,
+    idempotency_key: str = Header(alias="Idempotency-Key"),
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    """Reserve some or all available balance for one aggregate payout."""
+
+    if settings.stablepay_vault_address is None:
+        raise HTTPException(
+            status_code=503,
+            detail="STABLEPAY_VAULT_ADDRESS is not configured",
+        )
+    if merchant.wallet_address.lower() == settings.stablepay_vault_address.lower():
+        raise HTTPException(
+            status_code=409,
+            detail="Merchant payout address must differ from the vault address",
+        )
+    merchant_id = merchant.id
+    try:
+        created = await create_settlement(
+            session,
+            merchant,
+            amount_atomic=(
+                None if request.amount is None else usdc_to_atomic(request.amount)
+            ),
+            minimum_amount_atomic=usdc_to_atomic(
+                settings.settlement_minimum_amount
+            ),
+            idempotency_key=idempotency_key,
+        )
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        merchant = await session.get(Merchant, merchant_id)
+        if merchant is None:
+            raise HTTPException(status_code=404, detail="Merchant not found")
+        try:
+            created = await create_settlement(
+                session,
+                merchant,
+                amount_atomic=(
+                    None
+                    if request.amount is None
+                    else usdc_to_atomic(request.amount)
+                ),
+                minimum_amount_atomic=usdc_to_atomic(
+                    settings.settlement_minimum_amount
+                ),
+                idempotency_key=idempotency_key,
+            )
+            await session.commit()
+        except (SettlementError, IntegrityError) as error:
+            await session.rollback()
+            raise HTTPException(status_code=409, detail=str(error)) from error
+    except SettlementError as error:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return _settlement_response(created.settlement, created.replayed)
+
+
+@router.get("/me/settlements", response_model=list[SettlementResponse])
+async def list_current_merchant_settlements(
+    status: SettlementStatus | None = None,
+    limit: int = 50,
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
+    filters = [Settlement.merchant_id == merchant.id]
+    if status is not None:
+        filters.append(Settlement.status == status)
+    result = await session.execute(
+        select(Settlement)
+        .where(*filters)
+        .order_by(Settlement.created_at.desc(), Settlement.id.desc())
+        .limit(limit)
+    )
+    return [_settlement_response(settlement) for settlement in result.scalars()]
+
+
+@router.get(
+    "/me/settlements/{settlement_id}",
+    response_model=SettlementResponse,
+)
+async def get_current_merchant_settlement(
+    settlement_id: str,
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Settlement).where(
+            Settlement.id == settlement_id,
+            Settlement.merchant_id == merchant.id,
+        )
+    )
+    settlement = result.scalar_one_or_none()
+    if settlement is None:
+        raise HTTPException(status_code=404, detail="Settlement not found")
+    return _settlement_response(settlement)
+
+
+@router.post(
+    "/me/settlements/{settlement_id}/cancel",
+    response_model=SettlementResponse,
+)
+async def cancel_current_merchant_settlement(
+    settlement_id: str,
+    merchant: Merchant = Depends(get_authenticated_merchant),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        settlement = await cancel_settlement(
+            session,
+            settlement_id,
+            merchant.id,
+        )
+        await session.commit()
+    except SettlementError as error:
+        await session.rollback()
+        status_code = 404 if str(error) == "Settlement not found" else 409
+        raise HTTPException(status_code=status_code, detail=str(error)) from error
+    return _settlement_response(settlement)
+
+
+def _settlement_response(
+    settlement: Settlement,
+    replayed: bool | None = None,
+) -> SettlementResponse | SettlementCreatedResponse:
+    values = {
+        "id": settlement.id,
+        "merchant_id": settlement.merchant_id,
+        "amount": settlement.amount,
+        "currency": settlement.currency,
+        "chain": settlement.chain,
+        "destination_address": settlement.destination_address,
+        "status": settlement.status,
+        "transaction_hash": settlement.transaction_hash,
+        "failure_reason": settlement.failure_reason,
+        "created_at": settlement.created_at,
+        "broadcast_at": settlement.broadcast_at,
+        "submitted_at": settlement.submitted_at,
+        "confirmed_at": settlement.confirmed_at,
+        "failed_at": settlement.failed_at,
+        "cancelled_at": settlement.cancelled_at,
+    }
+    if replayed is not None:
+        return SettlementCreatedResponse(**values, replayed=replayed)
+    return SettlementResponse(**values)

@@ -20,6 +20,7 @@ from services.blockchain_monitor import BlockchainMonitorError  # noqa: E402
 from services.blockchain_monitor import monitor_blockchain_once  # noqa: E402
 from config import settings  # noqa: E402
 from services.vault_monitor import monitor_vault_deposits_once  # noqa: E402
+from services.settlement_monitor import refresh_submitted_settlements  # noqa: E402
 
 
 async def run_once() -> int:
@@ -36,6 +37,12 @@ async def run_once() -> int:
                         session,
                         blockchain_client,
                     )
+                    settlement_result = await refresh_submitted_settlements(
+                        session,
+                        blockchain_client,
+                    )
+                else:
+                    settlement_result = None
             except (
                 BlockchainConnectionError,
                 BlockchainTransactionError,
@@ -66,6 +73,11 @@ async def run_once() -> int:
         print("Vault USDC transfers seen:", vault_result.transfers_seen)
         print("Vault deposits confirmed:", vault_result.deposits_confirmed)
         print("Ambiguous vault transfers:", vault_result.ambiguous_transfers)
+    if settlement_result is not None:
+        print("Settlements examined:", settlement_result.examined)
+        print("Settlements confirmed:", settlement_result.confirmed)
+        print("Settlements failed:", settlement_result.failed)
+        print("Settlements needing review:", settlement_result.review_required)
     return 0
 
 

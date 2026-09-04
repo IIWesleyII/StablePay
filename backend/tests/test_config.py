@@ -73,6 +73,31 @@ def test_vault_expiration_settings_must_be_positive(setting_name: str):
         )
 
 
+def test_settlement_minimum_amount_must_be_positive():
+    with pytest.raises(ValidationError, match="settlement_minimum_amount"):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            settlement_minimum_amount="0",
+            _env_file=None,
+        )
+
+
+def test_settlement_confirmation_batch_size_must_be_positive():
+    with pytest.raises(
+        ValidationError,
+        match="settlement_confirmation_batch_size",
+    ):
+        Settings(
+            database_url="postgresql+asyncpg://user:password@localhost/stablepay",
+            merchant_wallet_address="0x1111111111111111111111111111111111111111",
+            base_sepolia_rpc_url="https://sepolia.base.org",
+            settlement_confirmation_batch_size=0,
+            _env_file=None,
+        )
+
+
 def test_payment_required_confirmations_must_be_positive():
     with pytest.raises(ValidationError, match="payment_required_confirmations"):
         Settings(

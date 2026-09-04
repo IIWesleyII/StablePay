@@ -9,6 +9,7 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from domain.ledger import LedgerTransactionType
+from domain.settlements import SettlementStatus
 
 
 class MerchantResponse(BaseModel):
@@ -99,6 +100,8 @@ class MerchantBalanceResponse(BaseModel):
 
     merchant_id: str
     available_balance: Decimal
+    reserved_balance: Decimal
+    settled_balance: Decimal
     currency: str
 
 
@@ -111,3 +114,36 @@ class MerchantMicropaymentResponse(BaseModel):
     currency: str
     reference: str
     created_at: datetime
+
+
+class SettlementCreate(BaseModel):
+    """An optional partial amount; omitted means all available balance."""
+
+    amount: Decimal | None = Field(
+        default=None,
+        gt=0,
+        max_digits=30,
+        decimal_places=6,
+    )
+
+
+class SettlementResponse(BaseModel):
+    id: str
+    merchant_id: str
+    amount: Decimal
+    currency: str
+    chain: str
+    destination_address: str
+    status: SettlementStatus
+    transaction_hash: str | None
+    failure_reason: str | None
+    created_at: datetime
+    broadcast_at: datetime | None
+    submitted_at: datetime | None
+    confirmed_at: datetime | None
+    failed_at: datetime | None
+    cancelled_at: datetime | None
+
+
+class SettlementCreatedResponse(SettlementResponse):
+    replayed: bool

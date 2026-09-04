@@ -190,6 +190,7 @@ def build_transfer_transaction(
     sender: str,
     recipient: str,
     raw_amount: int,
+    nonce: int | None = None,
 ) -> dict[str, Any]:
     """Build an ERC-20 transfer using current network fee information."""
 
@@ -201,7 +202,11 @@ def build_transfer_transaction(
     transaction: dict[str, Any] = {
         "from": sender,
         "chainId": BASE_SEPOLIA_CHAIN_ID,
-        "nonce": web3.eth.get_transaction_count(sender, "pending"),
+        "nonce": (
+            web3.eth.get_transaction_count(sender, "pending")
+            if nonce is None
+            else nonce
+        ),
     }
 
     latest_block = web3.eth.get_block("latest")

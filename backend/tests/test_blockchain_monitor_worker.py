@@ -57,6 +57,7 @@ async def test_worker_runs_cycle_and_closes_client(monkeypatch):
         )
 
     monkeypatch.setattr(settings, "blockchain_monitor_enabled", True)
+    monkeypatch.setattr(settings, "stablepay_vault_address", None)
     monkeypatch.setattr(
         blockchain_monitor.BaseSepoliaClient,
         "from_settings",
@@ -78,6 +79,7 @@ async def test_worker_runs_cycle_and_closes_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_worker_can_be_disabled_without_opening_rpc(monkeypatch):
     monkeypatch.setattr(settings, "blockchain_monitor_enabled", False)
+    monkeypatch.setattr(settings, "stablepay_vault_address", None)
     monkeypatch.setattr(
         blockchain_monitor.BaseSepoliaClient,
         "from_settings",
@@ -121,6 +123,7 @@ async def test_worker_catches_up_without_waiting_between_batches(monkeypatch):
         )
 
     monkeypatch.setattr(settings, "blockchain_monitor_enabled", True)
+    monkeypatch.setattr(settings, "stablepay_vault_address", None)
     monkeypatch.setattr(
         blockchain_monitor.BaseSepoliaClient,
         "from_settings",

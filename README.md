@@ -62,6 +62,8 @@ token for API requests. From the dashboard a merchant can:
 - Filter payments by lifecycle status.
 - Create a new USDC payment request.
 - Copy or open the resulting customer checkout link.
+- Review available, reserved, and settled micropayment balances.
+- Request or cancel an aggregate merchant settlement.
 
 Customer checkout links use this format:
 
@@ -204,7 +206,10 @@ funds back on-chain. Batched merchant payouts are Module 5.
 Set `STABLEPAY_VAULT_ADDRESS` in `.env` to a dedicated Base Sepolia address.
 It must differ from the customer test wallet and every merchant payment wallet,
 or one transfer could be mistaken for two kinds of funding. The address only
-receives test USDC in this module and does not need ETH yet.
+receives test USDC during deposits. Module 5 also sends merchant settlements
+from this address, so retain its private key locally and faucet a small amount
+of Base Sepolia ETH to it for gas. The private key belongs only in the ignored
+`.env` file and is never loaded by the FastAPI process.
 
 Restart StablePay after changing `.env`. Then have the customer test wallet
 sign one challenge without sending a transaction:
@@ -288,6 +293,81 @@ The merchant can also verify the receipt ID returned by a micropayment:
 
 ```bash
 curl http://127.0.0.1:8000/merchants/me/micropayments/ltx_REPLACE_ME \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY"
+```
+
+## Batched merchant settlement
+
+Module 5 converts many internal micropayments into one on-chain USDC payout per
+merchant. Requesting a settlement immediately moves the chosen amount from the
+merchant's available balance into a dedicated reserve. This prevents another
+request from paying the same balance while the blockchain transfer is pending.
+
+Request the entire available balance by omitting `amount`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/merchants/me/settlements \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY" \
+  -H 'Idempotency-Key: first-test-settlement' \
+  -d '{}'
+```
+
+You can instead send `{"amount":"0.001"}` for a partial settlement. A safe
+retry uses the same body and idempotency key. Before broadcast, the merchant can
+cancel the request and restore the reserved balance:
+
+```bash
+curl -X POST \
+  http://127.0.0.1:8000/merchants/me/settlements/stl_REPLACE_ME/cancel \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY"
+```
+
+### Broadcast pending settlements
+
+The configured `STABLEPAY_VAULT_ADDRESS` must be an address whose private key
+you control. The FastAPI process never loads that key. For this local testnet
+proof of concept, put it only in your ignored `.env` file:
+
+```text
+STABLEPAY_VAULT_PRIVATE_KEY=replace-with-the-test-vault-private-key
+```
+
+Load `.env`, then run the local payout command:
+
+```bash
+set -a
+source .env
+set +a
+
+./venv/Scripts/python.exe backend/run_settlements.py
+```
+
+The command verifies that the key controls the configured vault, shows every
+destination and the aggregate total, checks USDC and ETH balances, and asks
+before broadcasting. Each settlement represents many micropayments, although
+the standard USDC contract still requires one transfer per destination
+merchant.
+
+StablePay saves the expected transaction hash and signed payload before
+broadcast. If the command or RPC connection fails at the wrong moment, rerun
+the command and it safely rebroadcasts the exact same payout instead of signing
+a second one. The signed payload cannot be changed to pay a different address
+or amount and is removed after final confirmation.
+
+The background blockchain worker then checks the USDC sender, recipient,
+amount, receipt status, and confirmation count. A confirmed payout completes
+the ledger. A reverted payout returns the reserve to the merchant. Any
+successful but mismatched transaction becomes `review_required`, keeping the
+money frozen instead of guessing.
+
+List settlement records or inspect the three balance categories:
+
+```bash
+curl http://127.0.0.1:8000/merchants/me/settlements \
+  -H "Authorization: Bearer $STABLEPAY_API_KEY"
+
+curl http://127.0.0.1:8000/merchants/me/balance \
   -H "Authorization: Bearer $STABLEPAY_API_KEY"
 ```
 
