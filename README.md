@@ -48,10 +48,11 @@ also run `npm run dev` inside `frontend/`. Until then it starts only FastAPI.
 
 ## Merchant dashboard and checkout
 
-With the API running, open the merchant dashboard:
+With the API running, open StablePay's presentation demo (the root URL redirects
+to the dashboard):
 
 ```text
-http://127.0.0.1:8000/dashboard
+http://127.0.0.1:8000/
 ```
 
 Paste `STABLEPAY_API_KEY` into the login form. The dashboard validates the key,
@@ -64,6 +65,25 @@ token for API requests. From the dashboard a merchant can:
 - Copy or open the resulting customer checkout link.
 - Review available, reserved, and settled micropayment balances.
 - Request or cancel an aggregate merchant settlement.
+
+### Interactive micropayment demo
+
+The dashboard also contains a local-only micropayment lab. Connect it with the
+`STABLEPAY_VAULT_TOKEN` from the ignored `.env` file. It displays the real
+customer and merchant balances, confirmed deposit count, and both sides of
+recent double-entry ledger movements.
+
+Click **Call API and pay** to simulate buying one API response. The browser
+sends an idempotent request using the customer vault token, StablePay moves the
+configured amount to the logged-in merchant internally, and both balances and
+ledger entries update immediately. No wallet signature, gas payment, or
+blockchain transaction occurs for that individual call.
+
+The dashboard deliberately holds a merchant key and customer token together
+only to make the portfolio demonstration easy to follow. Both credentials live
+in browser-tab `sessionStorage` and are cleared by logging out. A production
+customer application and merchant dashboard would be separate clients and
+would never share their credentials.
 
 Customer checkout links use this format:
 

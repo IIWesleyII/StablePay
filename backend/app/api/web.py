@@ -7,6 +7,7 @@ from fastapi import Depends
 from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import HTMLResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,13 @@ APP_DIRECTORY = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=APP_DIRECTORY / "web" / "templates")
 
 router = APIRouter(tags=["checkout"])
+
+
+@router.get("/", response_class=RedirectResponse, include_in_schema=False)
+async def stablepay_home():
+    """Send local visitors directly to the presentation-ready demo console."""
+
+    return RedirectResponse(url="/dashboard", status_code=302)
 
 
 @router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)

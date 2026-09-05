@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="StablePay merchant payment dashboard">
-    <title>Merchant dashboard · StablePay</title>
+    <title>Demo console - StablePay</title>
     <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
     <script src="{{ url_for('static', path='/dashboard.js') }}" defer></script>
@@ -24,14 +24,14 @@
     <main>
       <section id="login-view" class="login-shell">
         <div class="login-copy">
-          <p class="eyebrow">Merchant workspace</p>
-          <h1>Stablecoin payments,<br>without the guesswork.</h1>
-          <p>Use your test API key to create checkout links and follow every USDC payment from request to confirmation.</p>
+          <p class="eyebrow">Interactive testnet demo</p>
+          <h1>See a stablecoin payment system work.</h1>
+          <p>Follow USDC from a customer deposit, through instant micropayments, to one verified merchant settlement.</p>
         </div>
         <form id="login-form" class="panel login-panel">
           <div>
-            <p class="eyebrow">Secure access</p>
-            <h2>Open your dashboard</h2>
+            <p class="eyebrow">Merchant access</p>
+            <h2>Open the demo console</h2>
             <p class="muted">Your key is kept only for this browser-tab session.</p>
           </div>
           <label for="api-key">StablePay API key</label>
@@ -44,12 +44,41 @@
       <section id="dashboard-view" class="dashboard-shell hidden">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">Overview</p>
-            <h1 id="merchant-greeting">Payments</h1>
-            <p class="muted">Create a request, share checkout, and track settlement.</p>
+            <p class="eyebrow">StablePay demo console</p>
+            <h1 id="merchant-greeting">Payment infrastructure</h1>
+            <p class="muted">Traditional checkouts and instant micropayments, backed by the same USDC rails.</p>
           </div>
           <button id="refresh-button" class="button button-secondary" type="button">Refresh data</button>
         </div>
+
+        <section class="panel journey-panel" aria-labelledby="journey-title">
+          <div class="journey-intro">
+            <div>
+              <p class="eyebrow">The micropayment journey</p>
+              <h2 id="journey-title">One deposit. Many tiny payments. One settlement.</h2>
+            </div>
+            <span class="demo-badge">Live data</span>
+          </div>
+          <div class="journey-flow">
+            <article>
+              <span class="journey-number">1</span>
+              <div><strong>Deposit</strong><p>Customer sends USDC to the StablePay vault once.</p></div>
+              <span class="rail-label onchain">On-chain</span>
+            </article>
+            <span class="journey-arrow" aria-hidden="true">&rarr;</span>
+            <article>
+              <span class="journey-number">2</span>
+              <div><strong>Micropay</strong><p>API calls move value instantly in the internal ledger.</p></div>
+              <span class="rail-label internal">No gas</span>
+            </article>
+            <span class="journey-arrow" aria-hidden="true">&rarr;</span>
+            <article>
+              <span class="journey-number">3</span>
+              <div><strong>Settle</strong><p>Accumulated earnings become one merchant payout.</p></div>
+              <span class="rail-label onchain">On-chain</span>
+            </article>
+          </div>
+        </section>
 
         <div class="summary-grid" aria-label="Payment summary">
           <article class="summary-card summary-total">
@@ -111,6 +140,87 @@
           </aside>
         </div>
 
+        <section class="panel micropayment-lab" aria-labelledby="micropayment-lab-title">
+          <div class="panel-heading lab-heading">
+            <div>
+              <p class="eyebrow">Live micropayment lab</p>
+              <h2 id="micropayment-lab-title">Pay for a simulated API call</h2>
+              <p class="muted">This writes a real double-entry transaction to StablePay, but sends no blockchain transaction.</p>
+            </div>
+            <span class="rail-label internal">Instant + gas-free</span>
+          </div>
+
+          <div id="vault-connect-view" class="vault-connect-grid">
+            <form id="vault-connect-form" class="vault-connect-form">
+              <label for="vault-token">Customer vault token</label>
+              <input id="vault-token" type="password" autocomplete="off" placeholder="vlt_...." required>
+              <p class="field-help">Stored only in this browser tab. Local demonstration only.</p>
+              <p id="vault-connect-error" class="form-message error-message hidden" role="alert"></p>
+              <button class="button button-primary" type="submit">Connect customer vault</button>
+            </form>
+            <div class="demo-explainer">
+              <span class="explainer-icon" aria-hidden="true">$</span>
+              <div>
+                <strong>Why use a token?</strong>
+                <p>The customer signed once when opening the vault. The token can authorize many small purchases without another wallet popup.</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="vault-demo-view" class="hidden">
+            <div class="demo-balance-strip">
+              <div>
+                <span>Customer available</span>
+                <strong id="demo-vault-balance">0 USDC</strong>
+                <small id="demo-vault-wallet" class="mono">Customer vault</small>
+              </div>
+              <div class="balance-transfer" aria-hidden="true">
+                <span>No blockchain transaction</span>
+                <b>&rarr;</b>
+              </div>
+              <div>
+                <span>Merchant available</span>
+                <strong id="demo-merchant-balance">0 USDC</strong>
+                <small id="demo-merchant-name">Merchant</small>
+              </div>
+              <button id="vault-disconnect-button" class="button button-ghost button-small" type="button">Disconnect vault</button>
+            </div>
+
+            <div class="lab-workspace">
+              <form id="micropayment-form" class="micropayment-form">
+                <div class="mock-api-header">
+                  <span class="mock-api-method">GET</span>
+                  <code>/api/weather/today</code>
+                </div>
+                <label for="micropayment-amount">Price per request</label>
+                <div class="amount-input compact-amount">
+                  <span>$</span>
+                  <input id="micropayment-amount" inputmode="decimal" value="0.001" required>
+                  <b>USDC</b>
+                </div>
+                <label for="micropayment-reference">Purchase reference</label>
+                <input id="micropayment-reference" maxlength="100" value="weather-api-demo" required>
+                <p id="micropayment-error" class="form-message error-message hidden" role="alert"></p>
+                <button class="button button-primary button-full" type="submit">Call API and pay</button>
+              </form>
+
+              <div class="ledger-demo">
+                <div class="ledger-heading">
+                  <div><span>Double-entry ledger</span><strong>Recent movements</strong></div>
+                  <span id="demo-deposit-count" class="muted">0 deposits</span>
+                </div>
+                <div id="demo-activity-empty" class="compact-empty">No ledger activity yet.</div>
+                <div id="demo-activity-list" class="ledger-list hidden"></div>
+              </div>
+            </div>
+
+            <div id="micropayment-result" class="micropayment-result hidden" aria-live="polite">
+              <span class="success-check" aria-hidden="true">&#10003;</span>
+              <div><strong>API response delivered and payment recorded</strong><p id="micropayment-result-detail"></p></div>
+            </div>
+          </div>
+        </section>
+
         <section class="panel settlement-panel">
           <div class="panel-heading settlement-heading">
             <div>
@@ -138,6 +248,10 @@
               <thead><tr><th>Settlement</th><th>Amount</th><th>Status</th><th>Destination</th><th><span class="sr-only">Actions</span></th></tr></thead>
               <tbody id="settlements-body"></tbody>
             </table>
+          </div>
+          <div class="operator-note">
+            <span class="journey-number">4</span>
+            <p><strong>Operator approval:</strong> a requested settlement is safely reserved until the local <code>run_settlements.py</code> signer broadcasts it.</p>
           </div>
         </section>
 

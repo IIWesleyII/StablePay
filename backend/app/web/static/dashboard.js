@@ -1,5 +1,7 @@
 const state = {
   apiKey: sessionStorage.getItem("stablepay_api_key") || "",
+  vaultToken: sessionStorage.getItem("stablepay_vault_token") || "",
+  merchant: null,
   limit: 10,
   offset: 0,
   status: "",
@@ -17,6 +19,25 @@ const elements = {
   merchantName: document.querySelector("#merchant-name"),
   merchantWallet: document.querySelector("#merchant-wallet"),
   merchantWebhook: document.querySelector("#merchant-webhook"),
+  vaultConnectView: document.querySelector("#vault-connect-view"),
+  vaultConnectForm: document.querySelector("#vault-connect-form"),
+  vaultToken: document.querySelector("#vault-token"),
+  vaultConnectError: document.querySelector("#vault-connect-error"),
+  vaultDemoView: document.querySelector("#vault-demo-view"),
+  vaultDisconnectButton: document.querySelector("#vault-disconnect-button"),
+  demoVaultBalance: document.querySelector("#demo-vault-balance"),
+  demoVaultWallet: document.querySelector("#demo-vault-wallet"),
+  demoMerchantBalance: document.querySelector("#demo-merchant-balance"),
+  demoMerchantName: document.querySelector("#demo-merchant-name"),
+  demoDepositCount: document.querySelector("#demo-deposit-count"),
+  demoActivityEmpty: document.querySelector("#demo-activity-empty"),
+  demoActivityList: document.querySelector("#demo-activity-list"),
+  micropaymentForm: document.querySelector("#micropayment-form"),
+  micropaymentAmount: document.querySelector("#micropayment-amount"),
+  micropaymentReference: document.querySelector("#micropayment-reference"),
+  micropaymentError: document.querySelector("#micropayment-error"),
+  micropaymentResult: document.querySelector("#micropayment-result"),
+  micropaymentResultDetail: document.querySelector("#micropayment-result-detail"),
   availableBalance: document.querySelector("#available-balance"),
   reservedBalance: document.querySelector("#reserved-balance"),
   settledBalance: document.querySelector("#settled-balance"),
@@ -77,9 +98,29 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+async function vaultRequest(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("Authorization", `Bearer ${state.vaultToken}`);
+  const response = await fetch(path, { ...options, headers });
+  let payload = null;
+  if (response.status !== 204) {
+    payload = await response.json().catch(() => null);
+  }
+  if (response.status === 401) {
+    disconnectVault();
+    throw new Error("The customer vault token is invalid.");
+  }
+  if (!response.ok) {
+    throw new Error(readableError(payload, "StablePay could not complete the vault request."));
+  }
+  return payload;
+}
+
 function showLogin(message = "") {
   state.apiKey = "";
+  state.merchant = null;
   sessionStorage.removeItem("stablepay_api_key");
+  disconnectVault();
   setHidden(elements.loginView, false);
   setHidden(elements.dashboardView, true);
   setHidden(elements.logoutButton, true);
@@ -127,12 +168,91 @@ async function copyText(value) {
 }
 
 function renderMerchant(merchant) {
-  elements.merchantGreeting.textContent = `${merchant.name} payments`;
+  state.merchant = merchant;
+  elements.merchantGreeting.textContent = `${merchant.name} demo`;
   elements.merchantName.textContent = merchant.name;
   elements.merchantWallet.textContent = merchant.wallet_address;
   elements.merchantWallet.title = merchant.wallet_address;
   elements.merchantWebhook.textContent = merchant.webhook_url;
   elements.merchantWebhook.title = merchant.webhook_url;
+  elements.demoMerchantName.textContent = merchant.name;
+}
+
+function shortValue(value, start = 8, end = 6) {
+  if (!value || value.length <= start + end + 3) return value || "";
+  return `${value.slice(0, start)}...${value.slice(-end)}`;
+}
+
+function disconnectVault() {
+  state.vaultToken = "";
+  sessionStorage.removeItem("stablepay_vault_token");
+  elements.vaultToken.value = "";
+  setHidden(elements.vaultConnectView, false);
+  setHidden(elements.vaultDemoView, true);
+  setHidden(elements.micropaymentResult, true);
+}
+
+function describeActivity(entry) {
+  const labels = {
+    deposit: "Vault funded",
+    micropayment: "Micropayment",
+    settlement: "Settlement movement",
+  };
+  return labels[entry.transaction_type] || entry.transaction_type.replaceAll("_", " ");
+}
+
+function makeLedgerItem(entry) {
+  const item = document.createElement("div");
+  item.className = "ledger-item";
+
+  const copy = document.createElement("div");
+  const heading = document.createElement("strong");
+  heading.textContent = `${entry.role}: ${describeActivity(entry)}`;
+  const reference = document.createElement("span");
+  reference.textContent = `${entry.reference} - ${formatDate(entry.created_at)}`;
+  copy.append(heading, reference);
+
+  const amount = document.createElement("b");
+  const numericAmount = Number(entry.amount);
+  amount.className = numericAmount >= 0 ? "ledger-credit" : "ledger-debit";
+  amount.textContent = `${numericAmount > 0 ? "+" : ""}${formatAmount(entry.amount)} USDC`;
+  item.append(copy, amount);
+  return item;
+}
+
+function renderDemoActivity(vaultActivity, merchantActivity) {
+  const entries = [
+    ...vaultActivity.map((entry) => ({ ...entry, role: "Customer" })),
+    ...merchantActivity.map((entry) => ({ ...entry, role: "Merchant" })),
+  ]
+    .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+    .slice(0, 10);
+
+  elements.demoActivityList.replaceChildren(...entries.map(makeLedgerItem));
+  setHidden(elements.demoActivityEmpty, entries.length !== 0);
+  setHidden(elements.demoActivityList, entries.length === 0);
+}
+
+function renderVaultData(vault, deposits, vaultActivity, merchantActivity) {
+  elements.demoVaultBalance.textContent = `${formatAmount(vault.balance)} ${vault.currency}`;
+  elements.demoVaultWallet.textContent = shortValue(vault.wallet_address);
+  elements.demoVaultWallet.title = vault.wallet_address;
+  const confirmedDeposits = deposits.filter((deposit) => deposit.status === "confirmed").length;
+  elements.demoDepositCount.textContent = `${confirmedDeposits} confirmed ${confirmedDeposits === 1 ? "deposit" : "deposits"}`;
+  renderDemoActivity(vaultActivity, merchantActivity);
+  setHidden(elements.vaultConnectView, true);
+  setHidden(elements.vaultDemoView, false);
+}
+
+async function loadVaultData() {
+  if (!state.vaultToken) return;
+  const [vault, deposits, vaultActivity, merchantActivity] = await Promise.all([
+    vaultRequest("/vaults/me"),
+    vaultRequest("/vaults/deposits?limit=20"),
+    vaultRequest("/vaults/activity?limit=20"),
+    apiRequest("/merchants/me/activity?limit=20"),
+  ]);
+  renderVaultData(vault, deposits, vaultActivity, merchantActivity);
 }
 
 function makePaymentRow(payment) {
@@ -245,6 +365,7 @@ function renderSettlementData(balance, settlements) {
   elements.availableBalance.textContent = `${formatAmount(balance.available_balance)} USDC`;
   elements.reservedBalance.textContent = `${formatAmount(balance.reserved_balance)} USDC`;
   elements.settledBalance.textContent = `${formatAmount(balance.settled_balance)} USDC`;
+  elements.demoMerchantBalance.textContent = `${formatAmount(balance.available_balance)} USDC`;
   elements.settlementsBody.replaceChildren(...settlements.map(makeSettlementRow));
   setHidden(elements.settlementsEmpty, settlements.length !== 0);
   setHidden(elements.settlementsTableWrap, settlements.length === 0);
@@ -281,15 +402,85 @@ async function loadPayments() {
   renderPayments(result);
 }
 
+async function loadVaultIfConnected() {
+  if (!state.vaultToken) return;
+  try {
+    await loadVaultData();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
 async function loadDashboard() {
-  const [merchant] = await Promise.all([
-    apiRequest("/merchants/me"),
-    loadPayments(),
-    loadSettlementData(),
-  ]);
+  const merchant = await apiRequest("/merchants/me");
   renderMerchant(merchant);
   showDashboard();
+  await Promise.all([
+    loadPayments(),
+    loadSettlementData(),
+    loadVaultIfConnected(),
+  ]);
 }
+
+elements.vaultConnectForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = elements.vaultConnectForm.querySelector("button[type='submit']");
+  state.vaultToken = elements.vaultToken.value.trim();
+  setHidden(elements.vaultConnectError, true);
+  button.disabled = true;
+  button.textContent = "Connecting...";
+  try {
+    await loadVaultData();
+    sessionStorage.setItem("stablepay_vault_token", state.vaultToken);
+    showToast("Customer vault connected");
+  } catch (error) {
+    elements.vaultConnectError.textContent = error.message;
+    setHidden(elements.vaultConnectError, false);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Connect customer vault";
+  }
+});
+
+elements.vaultDisconnectButton.addEventListener("click", () => {
+  disconnectVault();
+  showToast("Customer vault disconnected");
+});
+
+elements.micropaymentForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = elements.micropaymentForm.querySelector("button[type='submit']");
+  setHidden(elements.micropaymentError, true);
+  setHidden(elements.micropaymentResult, true);
+  button.disabled = true;
+  button.textContent = "Calling API and paying...";
+  try {
+    if (!state.merchant) throw new Error("Merchant account is not loaded.");
+    const payment = await vaultRequest("/vaults/micropayments", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": `dashboard-demo-${crypto.randomUUID()}`,
+      },
+      body: JSON.stringify({
+        merchant_id: state.merchant.id,
+        amount: elements.micropaymentAmount.value.trim(),
+        reference: elements.micropaymentReference.value.trim(),
+      }),
+    });
+    elements.micropaymentResultDetail.textContent =
+      `${formatAmount(payment.amount)} ${payment.currency} moved internally. Receipt ${shortValue(payment.id, 12, 4)}.`;
+    setHidden(elements.micropaymentResult, false);
+    await Promise.all([loadVaultData(), loadSettlementData()]);
+    showToast("Micropayment confirmed instantly");
+  } catch (error) {
+    elements.micropaymentError.textContent = error.message;
+    setHidden(elements.micropaymentError, false);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Call API and pay";
+  }
+});
 
 elements.loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -300,11 +491,8 @@ elements.loginForm.addEventListener("submit", async (event) => {
   submitButton.disabled = true;
   submitButton.textContent = "Checking key…";
   try {
-    const merchant = await apiRequest("/merchants/me");
     sessionStorage.setItem("stablepay_api_key", state.apiKey);
-    renderMerchant(merchant);
-    showDashboard();
-    await Promise.all([loadPayments(), loadSettlementData()]);
+    await loadDashboard();
   } catch (error) {
     showLogin(error.message);
   } finally {
